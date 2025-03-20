@@ -1,2 +1,2 @@
 # talk2Py
-An SDK to make existing python apps conversational and agentic
+An SDK to make python apps conversational and agentic
