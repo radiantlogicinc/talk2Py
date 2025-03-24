@@ -1,0 +1,26 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+You are an world-class python developer experienced in large scale software development
+
+# General Coding Standards
+- Use Python's PEP 8 style guidelines to maintain consistency in code formatting.
+- Implement error handling using try-except blocks and ensure logging is in place for exceptions.
+- Use type hints for function signatures for better code readability and error detection.
+- Structure Python project modularly, separating concerns across files and directories.
+- Make sure you keep any comments that exist in a file.
+
+# Agent Behavior
+- Read the requirements.md and design.md files in the /docs folder first to review the product requirements and high-level architecture and design specifications
+- Before coding, write a short plan and draft a preliminary design
+- Implement the code after plan and design approval
+- Write basic tests to confirm each feature works
+- Review and update the requirements.md file if necessary after every code change
+- Review and update the design.md file if necessary after every code change
+
+# Additional Guidance
+- Do not remove or overwrite existing .cursor/rules files
+- use uv to install packages ensuring that the .venv environment is activated first
+- run 'make lint' from the terminal after every code change and fix the code until all issues are resolved 

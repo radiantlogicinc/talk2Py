@@ -1,0 +1,56 @@
+[project]
+name = "talk2py"
+version = "0.1.0"
+description = "Enable conversational capability for python applications"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = {text = "Apache 2.0"}
+authors = [
+    {name = "Dhar Rawal", email = "drawal@radiantlogic.com"}
+]
+
+dependencies = [
+    # Core dependencies
+    "pydantic>=2.9.2",
+    "dspy-ai>=2.5.20",
+    "speedict>=0.3.12",
+    "python-dotenv>=1.0.1",
+    "murmurhash>=1.0.10",
+    "scikit-learn>=1.6.1",
+    "transformers>=4.48.2"    
+]
+
+[project.optional-dependencies]
+dev = [
+    "isort>=5.13.2",
+    "black>=24.10.0",
+    "flake8>=7.1.1",
+    "ruff>=0.0.265",
+    "pylint>=3.3.1",
+    "mypy>=1.13.0",
+    "bandit>=1.7.10",
+    "pytest>=8.3.3"
+]
+
+[tool.uv.dependency-groups.docs]
+dependencies = [
+    "sphinx>=7.0.0",
+    "sphinx-rtd-theme>=1.2.0",
+]
+optional = true
+
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["talk2py"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.bandit]
+# Skip assertion checks (B101) for test files
+skips = ["B101"]
+exclude_dirs = [".git", "__pycache__", ".venv", ".pytest_cache"] 
