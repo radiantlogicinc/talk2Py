@@ -133,8 +133,12 @@ def extract_function_metadata(
         module_name: Optional module name for special handling
 
     Returns:
-        Dictionary containing the function's metadata
+        Dictionary containing the function's metadata including parameters,
+        return type, and docstring
     """
+    # Extract docstring
+    docstring = ast.get_docstring(func_def) or ""
+
     # Extract parameters
     parameters = []
     for arg in func_def.args.args:
@@ -150,7 +154,11 @@ def extract_function_metadata(
     # Extract return type
     return_type = extract_type_annotation(func_def.returns, module_name)
 
-    return {"parameters": parameters, "return_type": return_type}
+    return {
+        "parameters": parameters,
+        "return_type": return_type,
+        "docstring": docstring,
+    }
 
 
 def parse_python_file(
@@ -250,6 +258,7 @@ def how_to_use():
         print(f"Command: {command_name}")
         print(f"  Parameters: {metadata['parameters']}")
         print(f"  Return type: {metadata['return_type']}")
+        print(f"  Docstring: {metadata['docstring']}")
         print()
 
 

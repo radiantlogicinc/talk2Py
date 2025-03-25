@@ -27,28 +27,66 @@ def create_test_files(tmp_path: Path) -> Path:
     # Create calculator module
     calculator_py = tmp_path / "calculator.py"
     calculator_py.write_text(
-        """
+        '''
 from talk2py import command
 
 @command
 def add(a: int, b: int) -> int:
+    """
+    Add two numbers.
+
+    Args:
+        a: First number
+        b: Second number
+
+    Returns:
+        Sum of the two numbers
+    """
     return a + b
 
 class Calculator:
     @command
     def multiply(self, a: int, b: int) -> int:
+        """
+        Multiply two numbers.
+
+        Args:
+            a: First number
+            b: Second number
+
+        Returns:
+            Product of the two numbers
+        """
         return a * b
 
     @classmethod
     @command
     def from_config(cls, config: dict) -> 'Calculator':
+        """
+        Create a Calculator instance from a configuration dictionary.
+
+        Args:
+            config: Configuration dictionary
+
+        Returns:
+            A new Calculator instance
+        """
         return cls()
 
     @staticmethod
     @command
     def validate(x: int) -> bool:
+        """
+        Validate if a number is positive.
+
+        Args:
+            x: Number to validate
+
+        Returns:
+            True if the number is positive
+        """
         return x > 0
-"""
+'''
     )
 
     # Create nested module
@@ -56,18 +94,38 @@ class Calculator:
     subdir.mkdir()
     helper_py = subdir / "helper.py"
     helper_py.write_text(
-        """
+        '''
 from talk2py import command
 
 @command
 def subtract(a: int, b: int) -> int:
+    """
+    Subtract two numbers.
+
+    Args:
+        a: First number
+        b: Second number
+
+    Returns:
+        Difference of the two numbers
+    """
     return a - b
 
 class MathHelper:
     @command
     def divide(self, a: int, b: int) -> int:
+        """
+        Divide two numbers.
+
+        Args:
+            a: First number
+            b: Second number
+
+        Returns:
+            Integer division result
+        """
         return a // b
-"""
+'''
     )
 
     # Create command metadata
@@ -76,50 +134,56 @@ class MathHelper:
     metadata_json = command_info_dir / "command_metadata.json"
     metadata_json.write_text(
         """{
-        "app_folderpath": ".",
-        "map_commandkey_2_metadata": {
-            "calculator.add": {
-                "parameters": [
-                    {"name": "a", "type": "int"},
-                    {"name": "b", "type": "int"}
-                ],
-                "return_type": "int"
-            },
-            "calculator.Calculator.multiply": {
-                "parameters": [
-                    {"name": "a", "type": "int"},
-                    {"name": "b", "type": "int"}
-                ],
-                "return_type": "int"
-            },
-            "calculator.Calculator.from_config": {
-                "parameters": [
-                    {"name": "config", "type": "dict"}
-                ],
-                "return_type": "Calculator"
-            },
-            "calculator.Calculator.validate": {
-                "parameters": [
-                    {"name": "x", "type": "int"}
-                ],
-                "return_type": "bool"
-            },
-            "subdir.helper.subtract": {
-                "parameters": [
-                    {"name": "a", "type": "int"},
-                    {"name": "b", "type": "int"}
-                ],
-                "return_type": "int"
-            },
-            "subdir.helper.MathHelper.divide": {
-                "parameters": [
-                    {"name": "a", "type": "int"},
-                    {"name": "b", "type": "int"}
-                ],
-                "return_type": "int"
+            "app_folderpath": ".",
+            "map_commandkey_2_metadata": {
+                "calculator.add": {
+                    "parameters": [
+                        {"name": "a", "type": "int"},
+                        {"name": "b", "type": "int"}
+                    ],
+                    "return_type": "int",
+                    "docstring": "Add two numbers."
+                },
+                "calculator.Calculator.multiply": {
+                    "parameters": [
+                        {"name": "a", "type": "int"},
+                        {"name": "b", "type": "int"}
+                    ],
+                    "return_type": "int",
+                    "docstring": "Multiply two numbers."
+                },
+                "calculator.Calculator.from_config": {
+                    "parameters": [
+                        {"name": "config", "type": "dict"}
+                    ],
+                    "return_type": "Calculator",
+                    "docstring": "Create a Calculator instance from a configuration dictionary."
+                },
+                "calculator.Calculator.validate": {
+                    "parameters": [
+                        {"name": "x", "type": "int"}
+                    ],
+                    "return_type": "bool",
+                    "docstring": "Validate if a number is positive."
+                },
+                "subdir.helper.subtract": {
+                    "parameters": [
+                        {"name": "a", "type": "int"},
+                        {"name": "b", "type": "int"}
+                    ],
+                    "return_type": "int",
+                    "docstring": "Subtract two numbers."
+                },
+                "subdir.helper.MathHelper.divide": {
+                    "parameters": [
+                        {"name": "a", "type": "int"},
+                        {"name": "b", "type": "int"}
+                    ],
+                    "return_type": "int",
+                    "docstring": "Divide two numbers."
+                }
             }
-        }
-    }"""
+        }"""
     )
 
     return metadata_json
