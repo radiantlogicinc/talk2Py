@@ -3,4 +3,4 @@ description: "Python code structure instructions"
 globs: "**/*.py"
 alwaysApply: true
 ---
-- Always put all local testing code in a how_to_use() function that is called from __main__. 
+- Except for files in the ./tests folder, always put all local testing code in a how_to_use() function that is called from __main__. 

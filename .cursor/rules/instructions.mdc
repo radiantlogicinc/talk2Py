@@ -25,5 +25,6 @@ You are an world-class python developer experienced in large scale software deve
 
 # Additional Guidance
 - Do not remove or overwrite existing .cursor/rules files
+- Do noy remove existing comments including pylint or sourcery instructions
 - use uv to install packages ensuring that the .venv environment is activated first
 - run 'make test' from the terminal after every code change and fix the code until all issues are resolved 
