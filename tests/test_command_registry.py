@@ -15,6 +15,7 @@ from talk2py.command_registry import CommandRegistry
 
 
 def create_test_files(tmp_path: Path) -> Path:
+    # sourcery skip: extract-duplicate-method, inline-immediately-returned-variable
     """Create test files and metadata for testing.
 
     Args:
