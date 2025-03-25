@@ -9,10 +9,10 @@ import json
 import os
 import sys
 from types import MethodType
-from typing import Any, Callable, Dict, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type, cast
 
 
-class CommandRegistry:
+class CommandRegistry:  # pylint: disable=too-many-instance-attributes
     """Registry for managing command metadata and function loading.
 
     This class is responsible for loading command metadata from JSON files,
@@ -31,6 +31,10 @@ class CommandRegistry:
         self.command_funcs: Dict[str, Callable[..., Any]] = {}
         self.command_classes: Dict[str, Type[Any]] = {}
         self.metadata_dir: Optional[str] = None
+        # Store property setters in a separate dict for special handling
+        self.property_setters: Dict[str, Callable[..., Any]] = {}
+        # Track which keys are property getters
+        self.property_getters: Dict[str, bool] = {}
 
         if command_metadata_path:
             self.load_command_metadata(command_metadata_path)
@@ -59,13 +63,15 @@ class CommandRegistry:
         ).items():
             self._load_command_func(command_key, metadata)
 
-    def _load_command_func(self, command_key: str, _: Dict[str, Any]) -> None:
+    def _load_command_func(  # pylint: disable=too-many-branches
+        self, command_key: str, metadata: Dict[str, Any]
+    ) -> None:
         """Load a command function from its module path.
 
         Args:
             command_key: The command key in format 'path.to.module.Class.function'
                       or 'path.to.module.function'
-            _: The command metadata (unused)
+            metadata: The command metadata
 
         Example command_keys:
             - calculator.add  # Global function
@@ -95,7 +101,7 @@ class CommandRegistry:
         module_file = os.path.normpath(
             f"{os.path.join(app_folderpath, *module_parts)}.py"
         )
-        module_name = ".".join(module_parts)  # e.g., 'calculator' or 'subdir.module'
+        module_name = ".".join(module_parts)
 
         try:
             # Import the module
@@ -121,47 +127,158 @@ class CommandRegistry:
                 raise AttributeError(
                     f"Method {func_name} not found in class {class_name}"
                 )
-            self.command_funcs[command_key] = getattr(class_obj, func_name)
+            attr = getattr(class_obj, func_name)
+            # Handle property objects by getting the underlying getter/setter function
+            if isinstance(attr, property):
+                self.command_funcs[command_key] = cast(Callable[..., Any], attr.fget)
+                self.property_getters[command_key] = True
+                # Check if this is a property with a setter
+                if attr.fset is not None and any(
+                    param.get("name") == "value"
+                    for param in metadata.get("parameters", [])
+                ):
+                    self.property_setters[command_key] = cast(
+                        Callable[..., Any], attr.fset
+                    )
+            else:
+                self.command_funcs[command_key] = attr
+                self.property_getters[command_key] = False
             self.command_classes[command_key] = class_obj
         elif hasattr(module, func_name):
-            self.command_funcs[command_key] = getattr(module, func_name)
+            attr = getattr(module, func_name)
+            # Handle property objects by getting the underlying getter function
+            if isinstance(attr, property):
+                self.command_funcs[command_key] = cast(Callable[..., Any], attr.fget)
+                self.property_getters[command_key] = True
+                # Check if this is a property with a setter
+                if attr.fset is not None and any(
+                    param.get("name") == "value"
+                    for param in metadata.get("parameters", [])
+                ):
+                    self.property_setters[command_key] = cast(
+                        Callable[..., Any], attr.fset
+                    )
+            else:
+                self.command_funcs[command_key] = attr
+                self.property_getters[command_key] = False
         else:
             raise AttributeError(
                 f"Function {func_name} not found in module {module_file}"
             )
 
     def get_command_func(
-        self, command_key: str, obj: Optional[Any] = None
-    ) -> Optional[Callable[..., Any]]:
+        self,
+        command_key: str,
+        obj: Optional[Any] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Callable[..., Any]:
         """Get the command function for a given command key.
 
         Args:
             command_key: The key identifying the command function
             obj: Optional instance to bind the method to if it's a class method
+            params: Optional parameters to determine if this is a setter call
 
         Returns:
-            The command function if found, None otherwise
+            The command function
 
         Raises:
             TypeError: If obj is provided but is not an instance of the expected class
+            ValueError: If command_key does not exist or is not in commands exposed by obj
         """
-        func = self.command_funcs.get(command_key)
-        if func is not None and obj is not None:
-            # Check if the object is an instance of the expected class
-            expected_class = self.command_classes.get(command_key)
-            if expected_class:
-                # Compare by module name and class name instead of direct class comparison
-                obj_type = type(obj)
-                if (obj_type.__module__, obj_type.__name__) != (
-                    expected_class.__module__,
-                    expected_class.__name__,
-                ):
-                    raise TypeError(
-                        f"Object must be an instance of {expected_class.__name__}"
-                    )
-            # Use Python's method binding
-            return MethodType(func, obj)
-        return func
+        if command_key not in self.command_funcs:
+            raise ValueError(f"Command '{command_key}' does not exist")
+
+        # Check if command is a class method
+        is_class_method = command_key in self.command_classes
+
+        # Check if command is a property
+        is_property = self.property_getters.get(command_key, False)
+
+        # Check if command has a property setter
+        has_setter = command_key in self.property_setters
+
+        # Check if this is a setter call based on parameters
+        is_setter_call = has_setter and params and "value" in params
+
+        # If it's a class method, we need an object
+        if is_class_method:
+            if obj is None:
+                raise ValueError(
+                    f"Command '{command_key}' is not available in the current context"
+                )
+
+            expected_class = self.command_classes[command_key]
+            obj_type = type(obj)
+
+            # Check if object is of expected type
+            if obj_type.__name__ != expected_class.__name__:
+                raise TypeError(
+                    f"Object must be an instance of {expected_class.__name__}"
+                )
+
+            # Handle property setter specially
+            if is_setter_call:
+                setter = self.property_setters[command_key]
+
+                # Ensure the setter is properly typed for mypy
+                def setter_wrapper(value: Any) -> Any:
+                    assert setter is not None
+                    return setter(obj, value)
+
+                return setter_wrapper
+
+            if is_property:
+                # For property getters, bind the function and create a no-argument wrapper
+                getter = self.command_funcs[command_key]
+
+                # Ensure the getter is properly typed for mypy
+                def getter_wrapper() -> Any:
+                    assert getter is not None
+                    return getter(obj)
+
+                return getter_wrapper
+
+            # For regular methods, use method binding
+            return MethodType(self.command_funcs[command_key], obj)
+
+        # For global functions, object should be None
+        if obj is not None:
+            raise ValueError(
+                f"Command '{command_key}' is not available in the current context"
+            )
+        return self.command_funcs[command_key]
+
+    def get_commands_in_current_context(
+        self, current_context: Optional[Any] = None
+    ) -> List[str]:
+        """Get command keys available in the current context.
+
+        Args:
+            current_context: Optional object representing the current context.
+                           If None, returns global command functions.
+                           If provided, returns class methods for the object's class.
+
+        Returns:
+            List of command keys available in the current context.
+        """
+        if current_context is None:
+            # Return global functions (those not in command_classes)
+            return sorted(
+                [key for key in self.command_funcs if key not in self.command_classes]
+            )
+
+        # Get the class of the current context
+        context_class_name = type(current_context).__name__
+
+        # Get all command keys that belong to this class
+        context_commands = [
+            key
+            for key, class_type in self.command_classes.items()
+            if class_type.__name__ == context_class_name
+        ]
+
+        return sorted(context_commands)
 
 
 def how_to_use():

@@ -231,9 +231,21 @@ class TestCommandRegistry:
         assert add_func(5, 3) == 8
 
         # Test class method
-        multiply_func = registry.get_command_func("calculator.Calculator.multiply")
+        spec = importlib.util.spec_from_file_location(
+            "calculator", tmp_path / "calculator.py"
+        )
+        if not spec or not spec.loader:
+            raise ImportError("Could not load calculator module")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["calculator"] = module
+        spec.loader.exec_module(module)
+
+        calc = module.Calculator()
+        multiply_func = registry.get_command_func(
+            "calculator.Calculator.multiply", calc
+        )
         assert multiply_func is not None
-        assert multiply_func(None, 4, 2) == 8  # None is self
+        assert multiply_func(4, 2) == 8
 
         # Test nested module global function
         subtract_func = registry.get_command_func("subdir.helper.subtract")
@@ -241,9 +253,21 @@ class TestCommandRegistry:
         assert subtract_func(10, 4) == 6
 
         # Test nested module class method
-        divide_func = registry.get_command_func("subdir.helper.MathHelper.divide")
+        helper_spec = importlib.util.spec_from_file_location(
+            "subdir.helper", tmp_path / "subdir" / "helper.py"
+        )
+        if not helper_spec or not helper_spec.loader:
+            raise ImportError("Could not load helper module")
+        helper_module = importlib.util.module_from_spec(helper_spec)
+        sys.modules["subdir.helper"] = helper_module
+        helper_spec.loader.exec_module(helper_module)
+
+        math_helper = helper_module.MathHelper()
+        divide_func = registry.get_command_func(
+            "subdir.helper.MathHelper.divide", math_helper
+        )
         assert divide_func is not None
-        assert divide_func(None, 10, 3) == 3  # None is self
+        assert divide_func(10, 3) == 3
 
     def test_get_nonexistent_command(self, tmp_path: Path) -> None:
         """Test getting a command that doesn't exist.
@@ -255,7 +279,9 @@ class TestCommandRegistry:
         os.chdir(tmp_path)
 
         registry = CommandRegistry(str(metadata_json))
-        assert registry.get_command_func("nonexistent.command") is None
+        with pytest.raises(ValueError) as exc_info:
+            registry.get_command_func("nonexistent.command")
+        assert "Command 'nonexistent.command' does not exist" in str(exc_info.value)
 
     def test_invalid_module_path(self, tmp_path: Path) -> None:
         """Test loading a command with an invalid module path.
@@ -366,7 +392,7 @@ def real_func():
             CommandRegistry(str(metadata_json))
 
     def test_get_command_func_for_object(self, tmp_path: Path) -> None:
-        """Test getting a command function bound to an object.
+        """Test getting command function bound to an object.
 
         Args:
             tmp_path: Pytest fixture providing a temporary directory path
@@ -432,17 +458,6 @@ class Calculator:
         # Create registry and register command
         registry = CommandRegistry(str(metadata_json))
 
-        # Debug logging to inspect types
-        print("\nDebug type information:")
-        print(f"calc type: {type(calc)}")
-        print(f"calc type module: {type(calc).__module__}")
-        print(f"calc memory address: {hex(id(calc))}")
-
-        # Get the Calculator class from the registry's perspective
-        command_func = registry.get_command_func("calculator.Calculator.multiply")
-        print(f"command_func type: {type(command_func)}")
-        print(f"command_func: {command_func}")
-
         # Test getting function for correct object
         func = registry.get_command_func("calculator.Calculator.multiply", calc)
         assert func is not None
@@ -452,3 +467,102 @@ class Calculator:
         with pytest.raises(TypeError) as exc_info:
             registry.get_command_func("calculator.Calculator.multiply", wrong_obj)
         assert str(exc_info.value) == "Object must be an instance of Calculator"
+
+        # Test getting function without context
+        with pytest.raises(ValueError) as exc_info_2:
+            registry.get_command_func("calculator.Calculator.multiply")
+        assert (
+            "Command 'calculator.Calculator.multiply' is not available in the current context"
+            == str(exc_info_2.value)
+        )
+
+    def test_get_commands_in_current_context(self, tmp_path: Path) -> None:
+        # sourcery skip: extract-duplicate-method
+        """Test getting commands available in the current context.
+
+        Args:
+            tmp_path: Pytest fixture providing a temporary directory path
+        """
+        metadata_json = create_test_files(tmp_path)
+        os.chdir(tmp_path)
+
+        registry = CommandRegistry(str(metadata_json))
+
+        # Test getting global commands
+        global_commands = registry.get_commands_in_current_context(None)
+        assert "calculator.add" in global_commands
+        assert "subdir.helper.subtract" in global_commands
+        assert "calculator.Calculator.multiply" not in global_commands
+
+        # Test getting commands for Calculator class
+        spec = importlib.util.spec_from_file_location(
+            "calculator", tmp_path / "calculator.py"
+        )
+        if not spec or not spec.loader:
+            raise ImportError("Could not load calculator module")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["calculator"] = module
+        spec.loader.exec_module(module)
+
+        calc = module.Calculator()
+        calc_commands = registry.get_commands_in_current_context(calc)
+        assert "calculator.Calculator.multiply" in calc_commands
+        assert "calculator.Calculator.from_config" in calc_commands
+        assert "calculator.Calculator.validate" in calc_commands
+        assert "calculator.add" not in calc_commands
+
+    def test_get_command_func_context_validation(self, tmp_path: Path) -> None:
+        """Test command function context validation.
+
+        Args:
+            tmp_path: Pytest fixture providing a temporary directory path
+        """
+        metadata_json = create_test_files(tmp_path)
+        os.chdir(tmp_path)
+
+        registry = CommandRegistry(str(metadata_json))
+
+        # Test getting global command
+        add_func = registry.get_command_func("calculator.add")
+        assert add_func is not None
+        assert add_func(5, 3) == 8
+
+        # Test getting class method in correct context
+        spec = importlib.util.spec_from_file_location(
+            "calculator", tmp_path / "calculator.py"
+        )
+        if not spec or not spec.loader:
+            raise ImportError("Could not load calculator module")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["calculator"] = module
+        spec.loader.exec_module(module)
+
+        calc = module.Calculator()
+        multiply_func = registry.get_command_func(
+            "calculator.Calculator.multiply", calc
+        )
+        assert multiply_func is not None
+        assert multiply_func(4, 2) == 8
+
+        # Test getting class method in wrong context
+        with pytest.raises(
+            ValueError,
+            match=(
+                "Command 'calculator.Calculator.multiply' is not "
+                "available in the current context"
+            ),
+        ):
+            registry.get_command_func("calculator.Calculator.multiply")
+
+        # Test getting global command in class context
+        with pytest.raises(
+            ValueError,
+            match="Command 'calculator.add' is not available in the current context",
+        ):
+            registry.get_command_func("calculator.add", calc)
+
+        # Test getting nonexistent command
+        with pytest.raises(
+            ValueError, match="Command 'nonexistent.command' does not exist"
+        ):
+            registry.get_command_func("nonexistent.command")

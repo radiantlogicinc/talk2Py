@@ -109,8 +109,10 @@ def test_command_registry_invalid_command(temp_calculator_module: dict) -> None:
         temp_calculator_module: Fixture providing test module paths
     """
     registry = CommandRegistry(str(temp_calculator_module["metadata_path"]))
-    invalid_func = registry.get_command_func("calculator.nonexistent")
-    assert invalid_func is None
+    with pytest.raises(
+        ValueError, match="Command 'calculator.nonexistent' does not exist"
+    ):
+        registry.get_command_func("calculator.nonexistent")
 
 
 def test_command_executor_perform_action(temp_calculator_module: dict) -> None:
@@ -143,6 +145,7 @@ def test_command_executor_invalid_command() -> None:
     executor = CommandExecutor(CommandRegistry())  # Initialize with empty registry
     invalid_action = Action(command_key="calculator.nonexistent", parameters={})
 
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(
+        ValueError, match="Command 'calculator.nonexistent' does not exist"
+    ):
         executor.perform_action(invalid_action)
-    assert "Command implementation function not found" in str(exc_info.value)

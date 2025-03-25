@@ -43,7 +43,10 @@ class CommandExecutor:
         Raises:
             ValueError: If no command implementation is found for the command key.
         """
-        if command_func := self.command_registry.get_command_func(action.command_key):
+        command_func = self.command_registry.get_command_func(
+            action.command_key, talk2py.CURRENT_CONTEXT, action.parameters
+        )
+        if command_func is not None:
             return command_func(**action.parameters)
 
         raise ValueError(

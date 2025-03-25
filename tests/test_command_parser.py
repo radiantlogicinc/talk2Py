@@ -121,6 +121,27 @@ class TestCommandParser:
 
         assert is_command_decorated(func_def)  # nosec B101
 
+        # Test with @talk2py.command decorator
+        code = "@talk2py.command\ndef test_func():\n    pass"
+        tree = ast.parse(code)
+        func_def = tree.body[0]
+
+        assert is_command_decorated(func_def)  # nosec B101
+
+        # Test with @talk2py.command() decorator call
+        code = "@talk2py.command()\ndef test_func():\n    pass"
+        tree = ast.parse(code)
+        func_def = tree.body[0]
+
+        assert is_command_decorated(func_def)  # nosec B101
+
+        # Test with a different attribute decorator
+        code = "@other.decorator\ndef test_func():\n    pass"
+        tree = ast.parse(code)
+        func_def = tree.body[0]
+
+        assert not is_command_decorated(func_def)  # nosec B101
+
     def test_should_include_function(self):
         """Test if should_include_function correctly identifies functions to include."""
         # Create a decorated function node
@@ -211,6 +232,7 @@ def test_func(a: int, b: str) -> bool:
         assert metadata["docstring"] == ""
 
     def test_parse_python_file(self, tmp_path):
+        # sourcery skip: extract-duplicate-method
         """Test if parse_python_file correctly parses a Python file."""
         # Create a temporary Python file with test functions
         test_file = tmp_path / "test_module.py"

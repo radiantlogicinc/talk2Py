@@ -1,5 +1,6 @@
 """
 Simple calculator module with basic arithmetic operations.
+Demonstrates exposing global functions as conversation commands
 """
 
 from talk2py import command

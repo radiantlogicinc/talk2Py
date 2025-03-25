@@ -4,9 +4,10 @@ that can be called from natural language.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
-from pydantic import BaseModel
+# The object currently in focus. This determines the commands that will be exposed
+CURRENT_CONTEXT: Optional[Any] = None
 
 
 @dataclass

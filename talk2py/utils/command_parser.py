@@ -19,15 +19,37 @@ def is_command_decorated(node: ast.FunctionDef) -> bool:
         True if the function has a 'command' decorator, False otherwise
     """
     for decorator in node.decorator_list:
+        # Handle simple @command decorator
         if isinstance(decorator, ast.Name) and decorator.id == "command":
             return True
-        # Handle cases like @command() with call
+
+        # Handle @command() decorator call
         if (
             isinstance(decorator, ast.Call)
             and isinstance(decorator.func, ast.Name)
             and decorator.func.id == "command"
         ):
             return True
+
+        # Handle @talk2py.command decorator
+        if (
+            isinstance(decorator, ast.Attribute)
+            and isinstance(decorator.value, ast.Name)
+            and decorator.value.id == "talk2py"
+            and decorator.attr == "command"
+        ):
+            return True
+
+        # Handle @talk2py.command() decorator call
+        if (
+            isinstance(decorator, ast.Call)
+            and isinstance(decorator.func, ast.Attribute)
+            and isinstance(decorator.func.value, ast.Name)
+            and decorator.func.value.id == "talk2py"
+            and decorator.func.attr == "command"
+        ):
+            return True
+
     return False
 
 
