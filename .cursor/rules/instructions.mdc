@@ -17,10 +17,13 @@ You are an world-class python developer experienced in large scale software deve
 - Before coding, write a short plan and draft a preliminary design
 - Implement the code after plan and design approval
 - Write basic tests to confirm each feature works
-- Review and update the requirements.md file if necessary after every code change
-- Review and update the design.md file if necessary after every code change
+- After code changes, run 'make test' and iterate until all linting and pytest failures are resolved
+- Review and update the requirements.md and design.md files in the ./docs folder after every code change, if appropriate
+
+# Debugging
+- Insert logging.debug() calls in relevant code for debugging. Python logging helper functions are implemented in ./talk2py/utils/logging.py
 
 # Additional Guidance
 - Do not remove or overwrite existing .cursor/rules files
 - use uv to install packages ensuring that the .venv environment is activated first
-- run 'make lint' from the terminal after every code change and fix the code until all issues are resolved 
+- run 'make test' from the terminal after every code change and fix the code until all issues are resolved 

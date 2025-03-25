@@ -281,7 +281,7 @@ class Helper:
         """
         # Get the path to this file
         file_path = os.path.abspath(__file__)
-        app_folder_path = os.path.dirname(os.path.dirname(file_path))  # talk2py root
+        app_folder_path = os.path.dirname(file_path)  # project root
 
         # Parse this file
         commands = parse_python_file(file_path, app_folder_path)
@@ -290,8 +290,8 @@ class Helper:
         assert len(commands) == 3
 
         # Check command_decorated_function
-        assert "tests.test_command_parser.command_decorated_function" in commands
-        function_meta = commands["tests.test_command_parser.command_decorated_function"]
+        assert "test_command_parser.command_decorated_function" in commands
+        function_meta = commands["test_command_parser.command_decorated_function"]
         assert len(function_meta["parameters"]) == 2
         assert function_meta["parameters"][0]["name"] == "name"
         assert function_meta["parameters"][0]["type"] == "str"
@@ -300,8 +300,8 @@ class Helper:
         assert function_meta["return_type"] == "str"
 
         # Check simple_function
-        assert "tests.test_command_parser.simple_function" in commands
-        function_meta = commands["tests.test_command_parser.simple_function"]
+        assert "test_command_parser.simple_function" in commands
+        function_meta = commands["test_command_parser.simple_function"]
         assert len(function_meta["parameters"]) == 2
         assert function_meta["parameters"][0]["name"] == "a"
         assert function_meta["parameters"][0]["type"] == "int"
@@ -310,10 +310,8 @@ class Helper:
         assert function_meta["return_type"] == "int"
 
         # Check function_with_complex_types
-        assert "tests.test_command_parser.function_with_complex_types" in commands
-        function_meta = commands[
-            "tests.test_command_parser.function_with_complex_types"
-        ]
+        assert "test_command_parser.function_with_complex_types" in commands
+        function_meta = commands["test_command_parser.function_with_complex_types"]
         assert len(function_meta["parameters"]) == 2
         assert function_meta["parameters"][0]["name"] == "data"
         assert "list" in function_meta["parameters"][0]["type"].lower()
@@ -322,4 +320,4 @@ class Helper:
         assert "dict" in function_meta["return_type"].lower()
 
         # Check that _private_function is not included
-        assert "tests.test_command_parser._private_function" not in commands
+        assert "test_command_parser._private_function" not in commands
