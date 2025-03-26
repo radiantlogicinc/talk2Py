@@ -22,7 +22,7 @@ lint: gen-env
 	mypy . --exclude .venv
 	bandit -c pyproject.toml -r . --exclude ./.venv
 
-test: lint
+test:
 	pytest
 
 publish-testpypi: gen-env

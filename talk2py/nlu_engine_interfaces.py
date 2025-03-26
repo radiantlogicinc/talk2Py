@@ -1,7 +1,6 @@
 """Natural Language Understanding (NLU) engine interfaces for talk2py.
 
 This module defines abstract interfaces for NLU engine components:
-- UtterancesInterface: For handling user utterances and command metadata
 - ParameterExtractionInterface: For extracting and validating command parameters
 - ResponseGenerationInterface: For generating human-readable responses based on command execution
 """
@@ -10,15 +9,6 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from pydantic import BaseModel
-
-
-# pylint: disable=too-few-public-methods
-class UtterancesInterface(ABC):
-    """Interface that defines utterance related methods"""
-
-    @abstractmethod
-    def get_utterance_metadata(self, command_key: str) -> tuple[str, Optional[str]]:
-        """return the function signature and optionally the docstring based on the command key"""
 
 
 # pylint: disable=too-few-public-methods
@@ -46,8 +36,7 @@ class ResponseGenerationInterface(ABC):
     @abstractmethod
     def generate_response(
         self,
-        command_key: str,
-        command_parameters: BaseModel,
+        command: str,
         execution_results: dict[str, str],
     ) -> str:
         """generate a human readable response based on command execution results"""

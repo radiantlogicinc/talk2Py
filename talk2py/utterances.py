@@ -8,12 +8,9 @@ import os
 
 from talk2py import get_registry
 from talk2py.command_registry import CommandRegistry
-from talk2py.nlu_engine_interfaces import UtterancesInterface
 
 
-class DefaultUtterancesImpl(
-    UtterancesInterface
-):  # pylint: disable=too-few-public-methods
+class DefaultUtterancesImpl:  # pylint: disable=too-few-public-methods
     """Default implementation of UtterancesInterface.
 
     This class generates function signatures and docstrings for commands
