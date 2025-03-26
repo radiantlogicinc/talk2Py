@@ -185,7 +185,10 @@ def init_todolist() -> TodoList:
         },
     }
 
-    metadata_path = module_dir / "command_metadata.json"
+    # Create ___command_info directory and metadata file
+    command_info_dir = module_dir / "___command_info"
+    command_info_dir.mkdir()
+    metadata_path = command_info_dir / "command_metadata.json"
     with open(metadata_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f)
 
@@ -211,7 +214,7 @@ def executor_with_todo(
     Returns:
         Configured CommandExecutor instance
     """
-    registry = CommandRegistry(str(temp_todo_module["metadata_path"]))
+    registry = CommandRegistry(str(temp_todo_module["module_dir"]))
     return CommandExecutor(registry)
 
 
@@ -228,13 +231,18 @@ def test_command_executor_with_context(
         cleanup_context: Fixture to reset global context
     """
     # Initialize todo list (global context)
-    init_action = Action(command_key="todo_list.init_todolist", parameters={})
+    init_action = Action(
+        app_folderpath="./examples/todo_list",
+        command_key="todo_list.init_todolist",
+        parameters={},
+    )
     todo_list = executor_with_todo.perform_action(init_action)
     assert isinstance(todo_list, object)  # Class not directly accessible in test
 
     # Add a todo (TodoList context)
     talk2py.CURRENT_CONTEXT = todo_list
     add_action = Action(
+        app_folderpath="./examples/todo_list",
         command_key="todo_list.TodoList.add_todo",
         parameters={"description": "Test todo"},
     )
@@ -245,11 +253,19 @@ def test_command_executor_with_context(
     talk2py.CURRENT_CONTEXT = todo
 
     # Close todo (Todo context)
-    close_action = Action(command_key="todo_list.Todo.close", parameters={})
+    close_action = Action(
+        app_folderpath="./examples/todo_list",
+        command_key="todo_list.Todo.close",
+        parameters={},
+    )
     executor_with_todo.perform_action(close_action)
 
     # Check todo state (Todo context)
-    state_action = Action(command_key="todo_list.Todo.state", parameters={})
+    state_action = Action(
+        app_folderpath="./examples/todo_list",
+        command_key="todo_list.Todo.state",
+        parameters={},
+    )
     state = executor_with_todo.perform_action(state_action)
     assert str(state) == "TodoState.CLOSED"
 
@@ -267,12 +283,17 @@ def test_command_executor_context_switching(
         cleanup_context: Fixture to reset global context
     """
     # Initialize todo list and set as context
-    init_action = Action(command_key="todo_list.init_todolist", parameters={})
+    init_action = Action(
+        app_folderpath="./examples/todo_list",
+        command_key="todo_list.init_todolist",
+        parameters={},
+    )
     todo_list = executor_with_todo.perform_action(init_action)
     assert talk2py.CURRENT_CONTEXT == todo_list
 
     # Add a todo in TodoList context
     add_action = Action(
+        app_folderpath="./examples/todo_list",
         command_key="todo_list.TodoList.add_todo",
         parameters={"description": "Test todo"},
     )
@@ -282,7 +303,11 @@ def test_command_executor_context_switching(
     talk2py.CURRENT_CONTEXT = todo
 
     # Modify todo in Todo context
-    close_action = Action(command_key="todo_list.Todo.close", parameters={})
+    close_action = Action(
+        app_folderpath="./examples/todo_list",
+        command_key="todo_list.Todo.close",
+        parameters={},
+    )
     executor_with_todo.perform_action(close_action)
 
     # Switch back to TodoList context
@@ -290,6 +315,7 @@ def test_command_executor_context_switching(
 
     # Add another todo in TodoList context
     add_action2 = Action(
+        app_folderpath="./examples/todo_list",
         command_key="todo_list.TodoList.add_todo",
         parameters={"description": "Another todo"},
     )
@@ -309,17 +335,26 @@ def test_command_executor_invalid_context(
         cleanup_context: Fixture to reset global context
     """
     # Initialize todo list
-    init_action = Action(command_key="todo_list.init_todolist", parameters={})
+    init_action = Action(
+        app_folderpath="./examples/todo_list",
+        command_key="todo_list.init_todolist",
+        parameters={},
+    )
     todo_list = executor_with_todo.perform_action(init_action)
 
     # Try to call Todo method with TodoList context
     talk2py.CURRENT_CONTEXT = todo_list
     with pytest.raises(TypeError, match="Object must be an instance of Todo"):
-        close_action = Action(command_key="todo_list.Todo.close", parameters={})
+        close_action = Action(
+            app_folderpath="./examples/todo_list",
+            command_key="todo_list.Todo.close",
+            parameters={},
+        )
         executor_with_todo.perform_action(close_action)
 
     # Add a todo and get its instance
     add_action = Action(
+        app_folderpath="./examples/todo_list",
         command_key="todo_list.TodoList.add_todo",
         parameters={"description": "Test todo"},
     )
@@ -329,6 +364,7 @@ def test_command_executor_invalid_context(
     talk2py.CURRENT_CONTEXT = todo
     with pytest.raises(TypeError, match="Object must be an instance of TodoList"):
         add_action2 = Action(
+            app_folderpath="./examples/todo_list",
             command_key="todo_list.TodoList.add_todo",
             parameters={"description": "Another todo"},
         )
@@ -348,12 +384,17 @@ def test_command_executor_properties(
         cleanup_context: Fixture to reset global context
     """
     # Initialize todo list
-    init_action = Action(command_key="todo_list.init_todolist", parameters={})
+    init_action = Action(
+        app_folderpath="./examples/todo_list",
+        command_key="todo_list.init_todolist",
+        parameters={},
+    )
     todo_list = executor_with_todo.perform_action(init_action)
 
     # Add a todo in TodoList context
     talk2py.CURRENT_CONTEXT = todo_list
     add_action = Action(
+        app_folderpath="./examples/todo_list",
         command_key="todo_list.TodoList.add_todo",
         parameters={"description": "Test todo"},
     )
@@ -363,18 +404,28 @@ def test_command_executor_properties(
     talk2py.CURRENT_CONTEXT = todo
 
     # Test property getter
-    state_action = Action(command_key="todo_list.Todo.state", parameters={})
+    state_action = Action(
+        app_folderpath="./examples/todo_list",
+        command_key="todo_list.Todo.state",
+        parameters={},
+    )
     state = executor_with_todo.perform_action(state_action)
     assert str(state) == "TodoState.ACTIVE"
 
     # Test property setter with a fixed value
     desc_action = Action(
-        command_key="todo_list.Todo.description", parameters={"value": "Updated todo"}
+        app_folderpath="./examples/todo_list",
+        command_key="todo_list.Todo.description",
+        parameters={"value": "Updated todo"},
     )
     executor_with_todo.perform_action(desc_action)
 
     # Verify property was set by calling the method again
     talk2py.CURRENT_CONTEXT = todo  # Ensure context is still set
-    desc_get_action = Action(command_key="todo_list.Todo.description", parameters={})
+    desc_get_action = Action(
+        app_folderpath="./examples/todo_list",
+        command_key="todo_list.Todo.description",
+        parameters={},
+    )
     desc = executor_with_todo.perform_action(desc_get_action)
     assert desc == "Updated todo"

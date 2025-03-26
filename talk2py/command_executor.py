@@ -27,9 +27,9 @@ class CommandExecutor:
 
         Args:
             command_registry: Optional CommandRegistry instance. If not provided,
-                            a new CommandRegistry will be created.
+                            a registry will be obtained from the action's app_folderpath.
         """
-        self.command_registry = command_registry or CommandRegistry()
+        self.command_registry = command_registry
 
     def perform_action(self, action: talk2py.Action) -> Any:
         """Execute the command specified by the action.
@@ -43,7 +43,10 @@ class CommandExecutor:
         Raises:
             ValueError: If no command implementation is found for the command key.
         """
-        command_func = self.command_registry.get_command_func(
+        # Use the provided registry or get one based on the action's app_folderpath
+        registry = self.command_registry or talk2py.get_registry(action.app_folderpath)
+
+        command_func = registry.get_command_func(
             action.command_key, talk2py.CURRENT_CONTEXT, action.parameters
         )
         if command_func is not None:

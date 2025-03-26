@@ -206,7 +206,34 @@ class TestCommandRegistry:
     def test_load_nonexistent_metadata(self) -> None:
         """Test loading metadata from a nonexistent file."""
         with pytest.raises(FileNotFoundError):
-            CommandRegistry("nonexistent.json")
+            CommandRegistry(command_metadata_path="nonexistent.json")
+
+    def test_load_nonexistent_app_folder(self) -> None:
+        """Test loading metadata from a nonexistent app folder."""
+        with pytest.raises(FileNotFoundError):
+            CommandRegistry(app_folderpath="nonexistent_folder")
+
+    def test_get_metadata_path(self, tmp_path: Path) -> None:
+        """Test get_metadata_path method.
+
+        Args:
+            tmp_path: Pytest fixture providing a temporary directory path
+        """
+        # Create command info directory and metadata file
+        command_info_dir = tmp_path / "___command_info"
+        command_info_dir.mkdir()
+        metadata_json = command_info_dir / "command_metadata.json"
+        metadata_json.write_text("{}")
+
+        # Test getting metadata path
+        metadata_path = CommandRegistry.get_metadata_path(str(tmp_path))
+        assert metadata_path == str(metadata_json)
+
+        # Test getting metadata path for nonexistent file
+        missing_dir = tmp_path / "missing"
+        missing_dir.mkdir()
+        with pytest.raises(FileNotFoundError):
+            CommandRegistry.get_metadata_path(str(missing_dir))
 
     def test_load_metadata_and_functions(self, tmp_path: Path) -> None:
         """Test loading metadata and functions from files.
@@ -214,12 +241,13 @@ class TestCommandRegistry:
         Args:
             tmp_path: Pytest fixture providing a temporary directory path
         """
-        metadata_json = create_test_files(tmp_path)
+        create_test_files(tmp_path)
 
         # Change to the temp directory for imports to work
         os.chdir(tmp_path)
 
-        registry = CommandRegistry(str(metadata_json))
+        # Create registry using app_folderpath
+        registry = CommandRegistry(app_folderpath=str(tmp_path))
 
         # Check metadata was loaded
         assert "app_folderpath" in registry.command_metadata
@@ -275,10 +303,10 @@ class TestCommandRegistry:
         Args:
             tmp_path: Pytest fixture providing a temporary directory path
         """
-        metadata_json = create_test_files(tmp_path)
+        create_test_files(tmp_path)
         os.chdir(tmp_path)
 
-        registry = CommandRegistry(str(metadata_json))
+        registry = CommandRegistry(app_folderpath=str(tmp_path))
         with pytest.raises(ValueError) as exc_info:
             registry.get_command_func("nonexistent.command")
         assert "Command 'nonexistent.command' does not exist" in str(exc_info.value)
@@ -307,7 +335,7 @@ class TestCommandRegistry:
         os.chdir(tmp_path)
 
         with pytest.raises(ImportError):
-            CommandRegistry(str(metadata_json))
+            CommandRegistry(app_folderpath=str(tmp_path))
 
     def test_invalid_class_name(self, tmp_path: Path) -> None:
         """Test loading a command with an invalid class name.
@@ -350,7 +378,7 @@ class RealCalculator:
         os.chdir(tmp_path)
 
         with pytest.raises(AttributeError, match="Class WrongCalculator not found"):
-            CommandRegistry(str(metadata_json))
+            CommandRegistry(app_folderpath=str(tmp_path))
 
     def test_invalid_function_name(self, tmp_path: Path) -> None:
         """Test loading a command with an invalid function name.
@@ -389,7 +417,7 @@ def real_func():
         os.chdir(tmp_path)
 
         with pytest.raises(AttributeError, match="Function wrong_func not found"):
-            CommandRegistry(str(metadata_json))
+            CommandRegistry(app_folderpath=str(tmp_path))
 
     def test_get_command_func_for_object(self, tmp_path: Path) -> None:
         """Test getting command function bound to an object.
@@ -456,7 +484,7 @@ class Calculator:
         wrong_obj = WrongClass()
 
         # Create registry and register command
-        registry = CommandRegistry(str(metadata_json))
+        registry = CommandRegistry(str(tmp_path))
 
         # Test getting function for correct object
         func = registry.get_command_func("calculator.Calculator.multiply", calc)
@@ -483,10 +511,10 @@ class Calculator:
         Args:
             tmp_path: Pytest fixture providing a temporary directory path
         """
-        metadata_json = create_test_files(tmp_path)
+        create_test_files(tmp_path)
         os.chdir(tmp_path)
 
-        registry = CommandRegistry(str(metadata_json))
+        registry = CommandRegistry(str(tmp_path))
 
         # Test getting global commands
         global_commands = registry.get_commands_in_current_context(None)
@@ -517,10 +545,10 @@ class Calculator:
         Args:
             tmp_path: Pytest fixture providing a temporary directory path
         """
-        metadata_json = create_test_files(tmp_path)
+        create_test_files(tmp_path)
         os.chdir(tmp_path)
 
-        registry = CommandRegistry(str(metadata_json))
+        registry = CommandRegistry(str(tmp_path))
 
         # Test getting global command
         add_func = registry.get_command_func("calculator.add")

@@ -20,12 +20,18 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
     functions.
     """
 
-    def __init__(self, command_metadata_path: Optional[str] = None):
+    def __init__(
+        self,
+        app_folderpath: Optional[str] = None,
+        command_metadata_path: Optional[str] = None,
+    ):
         """Initialize the CommandRegistry.
 
         Args:
+            app_folderpath: Optional path to the application folder. If provided,
+                            metadata path will be derived automatically using get_metadata_path.
             command_metadata_path: Optional path to a JSON file containing
-                                command metadata.
+                                command metadata. Deprecated, use app_folderpath instead.
         """
         self.command_metadata: Dict[str, Any] = {}
         self.command_funcs: Dict[str, Callable[..., Any]] = {}
@@ -36,8 +42,32 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
         # Track which keys are property getters
         self.property_getters: Dict[str, bool] = {}
 
-        if command_metadata_path:
+        if app_folderpath:
+            metadata_path = self.get_metadata_path(app_folderpath)
+            self.load_command_metadata(metadata_path)
+        elif command_metadata_path:
             self.load_command_metadata(command_metadata_path)
+
+    @staticmethod
+    def get_metadata_path(app_folderpath: str) -> str:
+        """Get the path to the command metadata file for an application.
+
+        Args:
+            app_folderpath: Path to the application folder
+
+        Returns:
+            Path to the command metadata file
+
+        Raises:
+            FileNotFoundError: If the metadata file or directory does not exist
+        """
+        metadata_dir = os.path.join(app_folderpath, "___command_info")
+        metadata_path = os.path.join(metadata_dir, "command_metadata.json")
+
+        if not os.path.exists(metadata_path):
+            raise FileNotFoundError(f"Command metadata file not found: {metadata_path}")
+
+        return metadata_path
 
     def load_command_metadata(self, metadata_path: str) -> None:
         """Load command metadata from a JSON file.
@@ -279,21 +309,3 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
         ]
 
         return sorted(context_commands)
-
-
-def how_to_use():
-    """Example usage of the CommandRegistry class."""
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    examples_dir = os.path.join(os.path.dirname(current_dir), "examples")
-    metadata_path = os.path.join(
-        examples_dir, "calculator", "___command_info", "command_metadata.json"
-    )
-
-    registry = CommandRegistry(metadata_path)
-    if add_func := registry.get_command_func("calculator.add"):
-        result = add_func(a=5, b=3)
-        print(f"5 + 3 = {result}")
-
-
-if __name__ == "__main__":
-    how_to_use()
