@@ -9,7 +9,7 @@ import json
 import os
 import sys
 from types import MethodType
-from typing import Any, Callable, Dict, List, Optional, Type, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, cast
 
 
 class CommandRegistry:  # pylint: disable=too-many-instance-attributes
@@ -93,9 +93,7 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
         ).items():
             self._load_command_func(command_key, metadata)
 
-    def _load_command_func(  # pylint: disable=too-many-branches
-        self, command_key: str, metadata: Dict[str, Any]
-    ) -> None:
+    def _load_command_func(self, command_key: str, metadata: Dict[str, Any]) -> None:
         """Load a command function from its module path.
 
         Args:
@@ -111,21 +109,60 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
             ImportError: If the module cannot be loaded
             AttributeError: If the function or class is not found
         """
-        app_folderpath = self.command_metadata.get("app_folderpath", "")
+        # Parse command key into components
+        module_parts, class_name, func_name = self._parse_command_key(command_key)
 
-        # Split command key into parts
+        # Import the module
+        module = self._import_module(module_parts)
+
+        # Register command based on whether it's a class method or module function
+        if class_name:
+            self._register_class_method(
+                command_key, module, class_name, func_name, metadata
+            )
+        else:
+            self._register_module_function(command_key, module, func_name, metadata)
+
+    def _parse_command_key(
+        self, command_key: str
+    ) -> Tuple[List[str], Optional[str], str]:
+        """Parse a command key into its components.
+
+        Args:
+            command_key: The command key to parse
+
+        Returns:
+            Tuple containing:
+            - module_parts: List of module path components
+            - class_name: Optional class name (None for global functions)
+            - func_name: Function name
+        """
         parts = command_key.split(".")
 
         # Check if it's a class method (has at least 3 parts and second-to-last is capitalized)
         if len(parts) >= 3 and parts[-2][0].isupper():
-            # For class methods: module_path = parts[:-2], class_name = parts[-2]
             module_parts = parts[:-2]
             class_name = parts[-2]
         else:
-            # For global functions: module_path = parts[:-1]
             module_parts = parts[:-1]
             class_name = None
+
         func_name = parts[-1]
+        return module_parts, class_name, func_name
+
+    def _import_module(self, module_parts: List[str]) -> Any:
+        """Import a module from its parts.
+
+        Args:
+            module_parts: List of module path components
+
+        Returns:
+            The imported module
+
+        Raises:
+            ImportError: If the module cannot be loaded
+        """
+        app_folderpath = self.command_metadata.get("app_folderpath", "")
 
         # Construct module file path and module name
         module_file = os.path.normpath(
@@ -134,67 +171,138 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
         module_name = ".".join(module_parts)
 
         try:
-            # Import the module
-            spec = importlib.util.spec_from_file_location(module_name, module_file)
-            if not spec or not spec.loader:
-                raise ImportError(f"Could not load module: {module_file}")
-
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module  # Register the module in sys.modules
-            spec.loader.exec_module(module)
+            return self.get_module(module_name, module_file)
         except FileNotFoundError as e:
             raise ImportError(f"Module file not found: {module_file}") from e
 
-        # Get the function
-        if class_name:
-            # Get class then function for class methods
-            if not hasattr(module, class_name):
-                raise AttributeError(
-                    f"Class {class_name} not found in module {module_file}"
-                )
-            class_obj = getattr(module, class_name)
-            if not hasattr(class_obj, func_name):
-                raise AttributeError(
-                    f"Method {func_name} not found in class {class_name}"
-                )
-            attr = getattr(class_obj, func_name)
-            # Handle property objects by getting the underlying getter/setter function
-            if isinstance(attr, property):
-                self.command_funcs[command_key] = cast(Callable[..., Any], attr.fget)
-                self.property_getters[command_key] = True
-                # Check if this is a property with a setter
-                if attr.fset is not None and any(
-                    param.get("name") == "value"
-                    for param in metadata.get("parameters", [])
-                ):
-                    self.property_setters[command_key] = cast(
-                        Callable[..., Any], attr.fset
-                    )
-            else:
-                self.command_funcs[command_key] = attr
-                self.property_getters[command_key] = False
-            self.command_classes[command_key] = class_obj
-        elif hasattr(module, func_name):
-            attr = getattr(module, func_name)
-            # Handle property objects by getting the underlying getter function
-            if isinstance(attr, property):
-                self.command_funcs[command_key] = cast(Callable[..., Any], attr.fget)
-                self.property_getters[command_key] = True
-                # Check if this is a property with a setter
-                if attr.fset is not None and any(
-                    param.get("name") == "value"
-                    for param in metadata.get("parameters", [])
-                ):
-                    self.property_setters[command_key] = cast(
-                        Callable[..., Any], attr.fset
-                    )
-            else:
-                self.command_funcs[command_key] = attr
-                self.property_getters[command_key] = False
-        else:
+    def get_module(self, module_name, module_file):
+        """Import a module by name and file path.
+
+        Args:
+            module_name: The name of the module to import
+            module_file: The file path of the module
+
+        Returns:
+            The imported module
+
+        Raises:
+            ImportError: If the module cannot be loaded
+        """
+        # Import the module
+        spec = importlib.util.spec_from_file_location(module_name, module_file)
+        if not spec or not spec.loader:
+            raise ImportError(f"Could not load module: {module_file}")
+
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module  # Register the module in sys.modules
+        spec.loader.exec_module(module)
+        return module
+
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def _register_class_method(
+        self,
+        command_key: str,
+        module: Any,
+        class_name: str,
+        func_name: str,
+        metadata: Dict[str, Any],
+    ) -> None:
+        """Register a class method as a command.
+
+        Args:
+            command_key: The command key
+            module: The imported module
+            class_name: Name of the class
+            func_name: Name of the function/method
+            metadata: Command metadata
+
+        Raises:
+            AttributeError: If the class or method is not found
+        """
+        module_file = module.__file__ if hasattr(module, "__file__") else "unknown"
+
+        # Validate class exists
+        if not hasattr(module, class_name):
+            raise AttributeError(
+                f"Class {class_name} not found in module {module_file}"
+            )
+
+        # Get class and validate method exists
+        class_obj = getattr(module, class_name)
+        if not hasattr(class_obj, func_name):
+            raise AttributeError(f"Method {func_name} not found in class {class_name}")
+
+        # Get attribute and register it
+        attr = getattr(class_obj, func_name)
+        self._register_attribute(command_key, attr, metadata)
+
+        # Store class for later use
+        self.command_classes[command_key] = class_obj
+
+    def _register_module_function(
+        self, command_key: str, module: Any, func_name: str, metadata: Dict[str, Any]
+    ) -> None:
+        """Register a module function as a command.
+
+        Args:
+            command_key: The command key
+            module: The imported module
+            func_name: Name of the function
+            metadata: Command metadata
+
+        Raises:
+            AttributeError: If the function is not found
+        """
+        module_file = module.__file__ if hasattr(module, "__file__") else "unknown"
+
+        # Validate function exists
+        if not hasattr(module, func_name):
             raise AttributeError(
                 f"Function {func_name} not found in module {module_file}"
             )
+
+        # Get attribute and register it
+        attr = getattr(module, func_name)
+        self._register_attribute(command_key, attr, metadata)
+
+    def _register_attribute(
+        self, command_key: str, attr: Any, metadata: Dict[str, Any]
+    ) -> None:
+        """Register an attribute (function or property) as a command.
+
+        Args:
+            command_key: The command key
+            attr: The attribute to register
+            metadata: Command metadata
+        """
+        if isinstance(attr, property):
+            self._register_property(command_key, attr, metadata)
+        else:
+            self.command_funcs[command_key] = attr
+            self.property_getters[command_key] = False
+
+    def _register_property(
+        self, command_key: str, prop: property, metadata: Dict[str, Any]
+    ) -> None:
+        """Register a property as a command.
+
+        Args:
+            command_key: The command key
+            prop: The property to register
+            metadata: Command metadata
+        """
+        # Register getter
+        self.command_funcs[command_key] = cast(Callable[..., Any], prop.fget)
+        self.property_getters[command_key] = True
+
+        # Check if this property has a setter and the metadata specifies a value parameter
+        has_value_param = any(
+            param.get("name") == "value" for param in metadata.get("parameters", [])
+        )
+
+        # Register setter if available and expected
+        if prop.fset is not None and has_value_param:
+            self.property_setters[command_key] = cast(Callable[..., Any], prop.fset)
 
     def get_command_func(
         self,

@@ -7,15 +7,13 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Union
 
+from talk2py.chat_context import ChatContext
 from talk2py.command_registry import CommandRegistry
 
-# The object currently in focus. This determines the commands that will be exposed
-CURRENT_CONTEXT: Optional[Any] = None
-
-# Registry cache for storing CommandRegistry instances keyed by app_folderpath
-_REGISTRY_CACHE: Dict[str, CommandRegistry] = {}
-
 _env_vars: Dict[str, str] = {}  # Initialize the global variable with type annotation
+
+# Global instance of ChatContext to be used throughout the application
+CHAT_CONTEXT = ChatContext()
 
 
 @dataclass
@@ -45,8 +43,7 @@ def command(func):
 def get_registry(app_folderpath: str) -> CommandRegistry:
     """Get a CommandRegistry instance for the specified application folder.
 
-    This function maintains a cache of registry instances to avoid
-    redundant loading of command metadata.
+    This is a compatibility function that forwards to CHAT_CONTEXT.get_registry.
 
     Args:
         app_folderpath: Path to the application folder
@@ -54,12 +51,7 @@ def get_registry(app_folderpath: str) -> CommandRegistry:
     Returns:
         A CommandRegistry instance for the specified application folder
     """
-    # Check if a registry exists in the cache
-    if app_folderpath not in _REGISTRY_CACHE:
-        # Create a new registry and add it to the cache
-        _REGISTRY_CACHE[app_folderpath] = CommandRegistry(app_folderpath)
-
-    return _REGISTRY_CACHE[app_folderpath]
+    return CHAT_CONTEXT.get_registry(app_folderpath)
 
 
 def get_env_var(

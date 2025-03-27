@@ -475,6 +475,7 @@ class WrongClass:
         self.assertIn("response_generation_class", interface_names)
 
     def test_preserve_existing_metadata_when_adding_new_interface(self):
+        # sourcery skip: extract-method
         """Test that adding a new interface preserves existing metadata."""
         # Setup: ensure we have existing param_extraction override for test.add
         command_key = "test.add"

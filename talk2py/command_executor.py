@@ -7,6 +7,7 @@ executing commands based on the provided action and command registry.
 from typing import Any, Optional
 
 import talk2py
+from talk2py import CHAT_CONTEXT
 from talk2py.command_registry import CommandRegistry
 
 # from fastworkflow.command_interfaces import CommandExecutorInterface
@@ -46,8 +47,13 @@ class CommandExecutor:
         # Use the provided registry or get one based on the action's app_folderpath
         registry = self.command_registry or talk2py.get_registry(action.app_folderpath)
 
+        # Get current context from CHAT_CONTEXT
+        current_context = None
+        if CHAT_CONTEXT.current_app_folderpath == action.app_folderpath:
+            current_context = CHAT_CONTEXT.current_object
+
         command_func = registry.get_command_func(
-            action.command_key, talk2py.CURRENT_CONTEXT, action.parameters
+            action.command_key, current_context, action.parameters
         )
         if command_func is not None:
             return command_func(**action.parameters)

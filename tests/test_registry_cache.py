@@ -8,6 +8,7 @@ import unittest
 from unittest import mock
 
 import talk2py
+from talk2py import CHAT_CONTEXT
 
 
 class TestRegistryCache(unittest.TestCase):
@@ -17,7 +18,7 @@ class TestRegistryCache(unittest.TestCase):
         """Set up test fixtures before each test method."""
         # Clear the registry cache
         # pylint: disable=protected-access
-        talk2py._REGISTRY_CACHE.clear()
+        CHAT_CONTEXT._registry_cache.clear()
 
     def test_registry_caching(self):
         """Test that get_registry caches CommandRegistry instances."""
@@ -28,7 +29,7 @@ class TestRegistryCache(unittest.TestCase):
         mock_registry_class.side_effect = [mock_instance1, mock_instance2]
 
         with (
-            mock.patch("talk2py.CommandRegistry", mock_registry_class),
+            mock.patch("talk2py.chat_context.CommandRegistry", mock_registry_class),
             mock.patch("os.path.exists", return_value=True),
             mock.patch("builtins.open", mock.mock_open(read_data="{}")),
         ):
@@ -48,7 +49,7 @@ class TestRegistryCache(unittest.TestCase):
         mock_registry_class = mock.MagicMock(return_value=mock_instance)
 
         with (
-            mock.patch("talk2py.CommandRegistry", mock_registry_class),
+            mock.patch("talk2py.chat_context.CommandRegistry", mock_registry_class),
             mock.patch("os.path.exists", return_value=True),
             mock.patch("builtins.open", mock.mock_open(read_data="{}")),
         ):

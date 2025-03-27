@@ -76,7 +76,7 @@ class TestNLUOverridesManagerCLI(TestCase):
         sys.stdout = self.original_stdout
         sys.stderr = self.original_stderr
 
-    def test_cli_invalid_command(self):
+    def test_cli_invalid_command(self):  # sourcery skip: class-extract-method
         """Test CLI behavior with invalid command number."""
         # Mock user input
         user_input = StringIO(

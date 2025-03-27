@@ -4,11 +4,13 @@ A todolist app demonstrating:
 2. switching conversation context among class instances
 """
 
+import os
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
 import talk2py
+from talk2py import CHAT_CONTEXT
 
 
 class TodoState(Enum):
@@ -197,15 +199,9 @@ class TodoList:
         """
         if value < 0:
             self._current_todo = None
-
-            # focus shifts to the todo list
-            talk2py.CURRENT_CONTEXT = self._todos
         else:
             todo = self.get_todo(value)
             self._current_todo = todo
-
-            # focus shifts to the current todo
-            talk2py.CURRENT_CONTEXT = self._current_todo
 
         return self._current_todo
 
@@ -251,8 +247,13 @@ def init_todolist_app() -> TodoList:
     if not TODO_LIST:
         TODO_LIST = TodoList()
 
+        # Set the current application folder path
+        app_path = os.path.dirname(os.path.abspath(__file__))
+        CHAT_CONTEXT.register_app(app_path)
+        CHAT_CONTEXT.current_app_folderpath = app_path
+
         # focus starts out on the todolist
-        talk2py.CURRENT_CONTEXT = TODO_LIST
+        CHAT_CONTEXT.current_object = TODO_LIST
 
     return TODO_LIST
 
