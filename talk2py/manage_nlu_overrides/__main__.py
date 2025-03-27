@@ -28,7 +28,7 @@ class InvalidOverride:
     error: str
 
 
-class NLUInterfaceManager:
+class NLUOverridesManager:
     """Manages NLU interface overrides for talk2py applications."""
 
     INTERFACE_TYPES = {
@@ -119,7 +119,7 @@ class NLUInterfaceManager:
         except Exception as e:  # pylint: disable=broad-exception-caught
             return False, str(e)
 
-    # pylint: disable=too-many-branches
+    # pylint: disable=too-many-branches,too-many-locals
     def _scan_existing_overrides(self) -> None:
         # sourcery skip: low-code-quality
         """Scan existing override implementations and update metadata."""
@@ -151,7 +151,7 @@ class NLUInterfaceManager:
                 metadata = existing_metadata[command_key].copy()
 
             # Check each interface type
-            for interface_id, (
+            for _, (
                 metadata_key,
                 interface_class,
                 filename,
@@ -452,7 +452,7 @@ def main():
     args = parser.parse_args()
 
     try:
-        manager = NLUInterfaceManager(args.app_folder_path)
+        manager = NLUOverridesManager(args.app_folder_path)
         manager._scan_existing_overrides()  # pylint: disable=protected-access
         _print_invalid_overrides(manager.invalid_overrides)
 

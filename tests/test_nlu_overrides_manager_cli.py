@@ -1,4 +1,4 @@
-"""Tests for NLU interface CLI."""
+"""Tests for NLU overrides manager CLI."""
 
 # pylint: disable=consider-using-with,too-many-instance-attributes
 
@@ -9,12 +9,12 @@ from io import StringIO
 from pathlib import Path
 from unittest import TestCase, mock
 
-from talk2py.add_nlu_interfaces.__main__ import main
+from talk2py.manage_nlu_overrides.__main__ import main
 
 
 # pylint: disable=too-many-instance-attributes
-class TestNLUInterfaceCLI(TestCase):
-    """Test cases for NLU interface CLI."""
+class TestNLUOverridesManagerCLI(TestCase):
+    """Test cases for NLU overrides manager CLI."""
 
     def setUp(self):
         """Set up test fixtures."""
@@ -91,10 +91,10 @@ class TestNLUInterfaceCLI(TestCase):
 
         # Run CLI
         with mock.patch(
-            "talk2py.add_nlu_interfaces.__main__.get_registry",
+            "talk2py.manage_nlu_overrides.__main__.get_registry",
             return_value=self.mock_registry,
         ):
-            sys.argv = ["add_nlu_interfaces", str(self.app_folder)]
+            sys.argv = ["manage_nlu_overrides", str(self.app_folder)]
             main()
 
         # Check error message
@@ -117,10 +117,10 @@ class TestNLUInterfaceCLI(TestCase):
 
         # Run CLI
         with mock.patch(
-            "talk2py.add_nlu_interfaces.__main__.get_registry",
+            "talk2py.manage_nlu_overrides.__main__.get_registry",
             return_value=self.mock_registry,
         ):
-            sys.argv = ["add_nlu_interfaces", str(self.app_folder)]
+            sys.argv = ["manage_nlu_overrides", str(self.app_folder)]
             main()
 
         # Check error message
@@ -145,10 +145,10 @@ class TestNLUInterfaceCLI(TestCase):
 
         # Run CLI
         with mock.patch(
-            "talk2py.add_nlu_interfaces.__main__.get_registry",
+            "talk2py.manage_nlu_overrides.__main__.get_registry",
             return_value=self.mock_registry,
         ):
-            sys.argv = ["add_nlu_interfaces", str(self.app_folder)]
+            sys.argv = ["manage_nlu_overrides", str(self.app_folder)]
             main()
 
         # Check warning message
@@ -178,10 +178,10 @@ class TestNLUInterfaceCLI(TestCase):
 
         # Run CLI
         with mock.patch(
-            "talk2py.add_nlu_interfaces.__main__.get_registry",
+            "talk2py.manage_nlu_overrides.__main__.get_registry",
             return_value=self.mock_registry,
         ):
-            sys.argv = ["add_nlu_interfaces", str(self.app_folder)]
+            sys.argv = ["manage_nlu_overrides", str(self.app_folder)]
             main()
 
         # Check message

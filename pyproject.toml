@@ -46,6 +46,12 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["talk2py"]
 
+[tool.pylint]
+max-line-length = 120
+
+[tool.pylint."tests.*"]
+disable = ["R0801"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py311"
@@ -53,4 +59,4 @@ target-version = "py311"
 [tool.bandit]
 # Skip assertion checks (B101) for test files
 skips = ["B101"]
-exclude_dirs = [".git", "__pycache__", ".venv", ".pytest_cache"] 
+exclude_dirs = [".git", "__pycache__", ".venv", ".pytest_cache"]

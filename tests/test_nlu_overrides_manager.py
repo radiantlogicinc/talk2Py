@@ -1,4 +1,4 @@
-"""Tests for NLU interface manager."""
+"""Tests for NLU overrides manager."""
 
 import json
 import os
@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from unittest import TestCase, mock
 
-from talk2py.add_nlu_interfaces.__main__ import NLUInterfaceManager
+from talk2py.manage_nlu_overrides.__main__ import NLUOverridesManager
 from talk2py.nlu_engine_interfaces import (
     ParameterExtractionInterface,
     ResponseGenerationInterface,
@@ -15,8 +15,8 @@ from talk2py.nlu_engine_interfaces import (
 
 # sourcery skip: no-conditionals-in-tests
 # pylint: disable=too-many-instance-attributes,protected-access,consider-using-with
-class TestNLUInterfaceManager(TestCase):
-    """Test cases for NLUInterfaceManager."""
+class TestNLUOverridesManager(TestCase):
+    """Test cases for NLUOverridesManager."""
 
     def setUp(self):
         """Set up test fixtures."""
@@ -76,10 +76,10 @@ class TestNLUInterfaceManager(TestCase):
 
         # Create manager with mocked registry
         with mock.patch(
-            "talk2py.add_nlu_interfaces.__main__.get_registry",
+            "talk2py.manage_nlu_overrides.__main__.get_registry",
             return_value=self.mock_registry,
         ):
-            self.manager = NLUInterfaceManager(str(self.app_folder))
+            self.manager = NLUOverridesManager(str(self.app_folder))
 
     def tearDown(self):
         """Clean up test fixtures."""
@@ -96,10 +96,10 @@ class TestNLUInterfaceManager(TestCase):
 
         # Create new manager
         with mock.patch(
-            "talk2py.add_nlu_interfaces.__main__.get_registry",
+            "talk2py.manage_nlu_overrides.__main__.get_registry",
             return_value=self.mock_registry,
         ):
-            manager = NLUInterfaceManager(str(self.app_folder))
+            manager = NLUOverridesManager(str(self.app_folder))
 
         expected = {
             "app_folderpath": f"./{os.path.relpath(str(self.app_folder))}",
