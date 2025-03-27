@@ -5,12 +5,11 @@ that can be called from natural language.
 
 import os
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Union
-
-from pydantic import BaseModel
+from typing import Dict, Optional
 
 from talk2py.chat_context import ChatContext
 from talk2py.command_registry import CommandRegistry
+from talk2py.types import ExtendedParamValue
 
 _env_vars: Dict[str, str] = {}  # Initialize the global variable with type annotation
 
@@ -32,9 +31,7 @@ class Action:
 
     app_folderpath: str
     command_key: str
-    parameters: Dict[str, Optional[Union[str, bool, int, float, BaseModel]]] = field(
-        default_factory=dict
-    )
+    parameters: Dict[str, Optional[ExtendedParamValue]] = field(default_factory=dict)
 
 
 def command(func):
@@ -61,9 +58,22 @@ def get_registry(app_folderpath: str) -> CommandRegistry:
 def get_env_var(
     var_name: str,
     var_type: type = str,
-    default: Optional[Union[str, int, float, bool]] = None,
-) -> Union[str, int, float, bool]:
-    """get the environment variable"""
+    default: Optional[ExtendedParamValue] = None,
+) -> ExtendedParamValue:
+    """Get the environment variable.
+    
+    Args:
+        var_name: Name of the environment variable to get
+        var_type: Type to convert the value to (str, int, float, or bool)
+        default: Optional default value if variable is not found
+        
+    Returns:
+        The environment variable value converted to the specified type
+        
+    Raises:
+        ValueError: If the variable doesn't exist and no default is provided,
+                  or if the value cannot be converted to the specified type
+    """
     value = _env_vars.get(var_name)
     if value is None:
         if default is not None:
