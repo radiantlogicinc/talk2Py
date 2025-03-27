@@ -14,6 +14,7 @@ from typing import Dict, Generator
 import pytest
 
 from talk2py import CHAT_CONTEXT, Action
+from talk2py.chat_context import ChatContext
 from talk2py.command_executor import CommandExecutor
 from talk2py.command_registry import CommandRegistry
 
@@ -703,3 +704,71 @@ def test_app_context_multiple_apps(cleanup_context) -> None:
     # Switch back to first app and verify context is preserved
     CHAT_CONTEXT.current_app_folderpath = app_path1
     assert CHAT_CONTEXT.app_context == context1
+
+
+@pytest.fixture
+def chat_context():
+    """Create a ChatContext instance for testing."""
+    return ChatContext()
+
+
+def test_add_conversation(chat_context):
+    """Test adding conversation entries."""
+    # Add a simple conversation
+    chat_context.append_to_conversation_history("Hello", "Hi there")
+    history = chat_context.get_conversation_history()
+    assert len(history) == 1
+    assert history[0] == ("Hello", "Hi there", None)
+
+    # Add a conversation with artifacts
+    artifacts = {"timestamp": 123456789}
+    chat_context.append_to_conversation_history("How are you?", "I'm good!", artifacts)
+    history = chat_context.get_conversation_history()
+    assert len(history) == 2
+    assert history[1] == ("How are you?", "I'm good!", {"timestamp": 123456789})
+
+
+def test_conversation_history_with_limit(chat_context):
+    """Test retrieving limited conversation history."""
+    chat_context.clear_conversation_history()
+    # Add multiple conversations
+    conversations = [
+        ("Q1", "R1"),
+        ("Q2", "R2"),
+        ("Q3", "R3"),
+        ("Q4", "R4"),
+    ]
+    # sourcery skip: no-loop-in-tests
+    for q, r in conversations:
+        chat_context.append_to_conversation_history(q, r)
+
+    # Test getting all history
+    assert len(chat_context.get_conversation_history()) == 4
+
+    # Test getting last 2 items
+    history = chat_context.get_conversation_history(last_n=2)
+    assert len(history) == 2
+    assert history == [("Q3", "R3", None), ("Q4", "R4", None)]
+
+    # Test getting more items than exist
+    history = chat_context.get_conversation_history(last_n=10)
+    assert len(history) == 4
+    assert history == [
+        ("Q1", "R1", None),
+        ("Q2", "R2", None),
+        ("Q3", "R3", None),
+        ("Q4", "R4", None),
+    ]
+
+
+def test_clear_conversation_history(chat_context):
+    """Test clearing conversation history."""
+    chat_context.clear_conversation_history()
+    # Add some conversations
+    chat_context.append_to_conversation_history("Q1", "R1")
+    chat_context.append_to_conversation_history("Q2", "R2")
+    assert len(chat_context.get_conversation_history()) == 2
+
+    # Clear history
+    chat_context.clear_conversation_history()
+    assert len(chat_context.get_conversation_history()) == 0

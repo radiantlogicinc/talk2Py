@@ -6,7 +6,9 @@ context and registry caching for the talk2py framework.
 """
 
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
+
+from pydantic import BaseModel
 
 from talk2py.command_registry import CommandRegistry
 
@@ -26,7 +28,17 @@ class ChatContext:
     # Cache for storing current object keyed by app_folderpath
     _current_object_cache: Dict[str, Optional[Any]] = {}
     # Cache for storing app_context_dictionary keyed by app_folderpath
-    _app_context_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+    _app_context_cache: Dict[
+        str, Optional[Dict[str, Optional[Union[str, bool, int, float]]]]
+    ] = {}
+    # Cache for storing conversation history keyed by app_folderpath
+    _conversation_history_cache: list[
+        tuple[
+            str,
+            str,
+            Optional[Dict[str, Optional[Union[str, bool, int, float, BaseModel]]]],
+        ]
+    ] = []
 
     @property
     def current_app_folderpath(self) -> Optional[str]:
@@ -78,16 +90,16 @@ class ChatContext:
         self.current_app_folderpath = app_folderpath
 
     @property
-    def app_context(self) -> dict[str, Any]:
+    def app_context(self) -> Dict[str, Any]:
         """Get the current application context dictionary."""
         if self._current_app_folderpath is None:
             raise ValueError("No current application folder path is set")
 
-        # Get the context dict or return an empty dict if None
+        # Get the context Dict or return an empty Dict if None
         return self._app_context_cache.get(self._current_app_folderpath) or {}
 
     @app_context.setter
-    def app_context(self, app_context_dict: dict[str, Any]) -> None:
+    def app_context(self, app_context_dict: Dict[str, Any]) -> None:
         """Set the application context dictionary.
 
         Args:
@@ -143,3 +155,45 @@ class ChatContext:
             self._registry_cache[app_folderpath] = CommandRegistry(app_folderpath)
 
         return self._registry_cache[app_folderpath]
+
+    def append_to_conversation_history(
+        self,
+        query: str,
+        response: str,
+        artifacts: Optional[
+            Dict[str, Optional[Union[str, bool, int, float, BaseModel]]]
+        ] = None,
+    ) -> None:
+        """Append a conversation entry to the history.
+
+        Args:
+            query: The user's query
+            response: The system's response
+            artifacts: Optional dictionary of additional data related to the conversation
+        """
+        self._conversation_history_cache.append((query, response, artifacts))
+
+    def get_conversation_history(self, last_n: int = -1) -> list[
+        tuple[
+            str,
+            str,
+            Optional[Dict[str, Optional[Union[str, bool, int, float, BaseModel]]]],
+        ]
+    ]:
+        """Get the conversation history.
+
+        Args:
+            last_n: Number of most recent conversations to return. -1 returns all items.
+
+        Returns:
+            List of (query, response) tuples from the conversation history
+        """
+        return (
+            self._conversation_history_cache
+            if last_n == -1
+            else self._conversation_history_cache[-last_n:]
+        )
+
+    def clear_conversation_history(self) -> None:
+        """Clear all entries from the conversation history."""
+        self._conversation_history_cache.clear()

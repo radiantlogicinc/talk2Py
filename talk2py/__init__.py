@@ -5,7 +5,9 @@ that can be called from natural language.
 
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Union
+from typing import Dict, Optional, Union
+
+from pydantic import BaseModel
 
 from talk2py.chat_context import ChatContext
 from talk2py.command_registry import CommandRegistry
@@ -30,7 +32,9 @@ class Action:
 
     app_folderpath: str
     command_key: str
-    parameters: Dict[str, Any] = field(default_factory=dict)
+    parameters: Dict[str, Optional[Union[str, bool, int, float, BaseModel]]] = field(
+        default_factory=dict
+    )
 
 
 def command(func):
