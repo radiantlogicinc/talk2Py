@@ -66,20 +66,26 @@ For detailed API documentation, visit our [API Reference](https://talk2py.readth
 
 ```bash
 # Clone the repository
-git clone https://github.com/username/talk2Py.git
-cd talk2Py
+git clone https://github.com/username/talk2py.git
+cd talk2py
 
-# Create a virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install development dependencies
-pip install -e ".[dev]"
+# Create and activate virtual environment using uv
+uv venv
+
+# Activate the virtual environment
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install development dependencies using uv
+uv pip install -e ".[dev]"
 ```
 
 ### Running Tests
-
 ```bash
+# Run tests using uv
+uv pip install pytest
 pytest
 ```
 
