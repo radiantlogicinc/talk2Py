@@ -250,7 +250,6 @@ def init_todolist_app() -> TodoList:
         # Set the current application folder path
         app_path = os.path.dirname(os.path.abspath(__file__))
         CHAT_CONTEXT.register_app(app_path)
-        CHAT_CONTEXT.current_app_folderpath = app_path
 
         # focus starts out on the todolist
         CHAT_CONTEXT.current_object = TODO_LIST

@@ -260,7 +260,6 @@ def test_command_executor_with_context(
 
     # Add a todo (TodoList context)
     CHAT_CONTEXT.register_app("./examples/todo_list")
-    CHAT_CONTEXT.current_app_folderpath = "./examples/todo_list"
     CHAT_CONTEXT.current_object = todo_list
     add_action = Action(
         app_folderpath="./examples/todo_list",
@@ -312,7 +311,6 @@ def test_command_executor_context_switching(
     # Register the app path first
     app_path = "./examples/todo_list"
     CHAT_CONTEXT.register_app(app_path)
-    CHAT_CONTEXT.current_app_folderpath = app_path
     CHAT_CONTEXT.current_object = todo_list
 
     # Add a todo in TodoList context
@@ -367,7 +365,6 @@ def test_command_executor_invalid_context(
     # Register the app
     app_path = "./examples/todo_list"
     CHAT_CONTEXT.register_app(app_path)
-    CHAT_CONTEXT.current_app_folderpath = app_path
     CHAT_CONTEXT.current_object = todo_list
 
     # Try to call Todo method with TodoList context
@@ -420,7 +417,6 @@ def test_command_executor_properties(
     # Register the app
     app_path = "./examples/todo_list"
     CHAT_CONTEXT.register_app(app_path)
-    CHAT_CONTEXT.current_app_folderpath = app_path
     CHAT_CONTEXT.current_object = todo_list
 
     # Add a todo in TodoList context
@@ -468,7 +464,6 @@ def setup_teardown():
     # Reset context before test
     app_path = "./examples/todo_list"  # Use a known path that will work
     CHAT_CONTEXT.register_app(app_path)
-    CHAT_CONTEXT.current_app_folderpath = app_path
     CHAT_CONTEXT.current_object = None
     yield
     # Reset after test
@@ -491,7 +486,6 @@ def test_object_based_property_get(setup_teardown, example_registry) -> None:
     # Set up the appropriate context
     app_path = "./examples/todo_list"
     CHAT_CONTEXT.register_app(app_path)
-    CHAT_CONTEXT.current_app_folderpath = app_path
     CHAT_CONTEXT.current_object = todo_list
 
     # Switch context to todo
@@ -520,7 +514,6 @@ def test_object_based_property_set(setup_teardown, example_registry) -> None:
     # Set up the appropriate context
     app_path = "./examples/todo_list"
     CHAT_CONTEXT.register_app(app_path)
-    CHAT_CONTEXT.current_app_folderpath = app_path
     CHAT_CONTEXT.current_object = todo
 
     # Set the description property
@@ -553,7 +546,6 @@ def test_method_binding_to_context(setup_teardown, example_registry) -> None:
     # Set up the context
     app_path = "./examples/todo_list"
     CHAT_CONTEXT.register_app(app_path)
-    CHAT_CONTEXT.current_app_folderpath = app_path
     CHAT_CONTEXT.current_object = todo_list
 
     # Call method on context object
@@ -588,7 +580,6 @@ def test_method_binding_to_different_context(setup_teardown, example_registry) -
     # Set up the context to a different object
     app_path = "./examples/todo_list"
     CHAT_CONTEXT.register_app(app_path)
-    CHAT_CONTEXT.current_app_folderpath = app_path
     CHAT_CONTEXT.current_object = todo
 
     # Call method on the todo object
@@ -624,7 +615,6 @@ def test_context_specific_method_binding(setup_teardown, example_registry) -> No
     # Set the context to the list
     app_path = "./examples/todo_list"
     CHAT_CONTEXT.register_app(app_path)
-    CHAT_CONTEXT.current_app_folderpath = app_path
     CHAT_CONTEXT.current_object = todo_list
 
     # Call method on todo_list
@@ -653,7 +643,6 @@ def test_app_context_getter_setter(cleanup_context) -> None:
     # Set up a test app path
     app_path = "./examples/todo_list"
     CHAT_CONTEXT.register_app(app_path)
-    CHAT_CONTEXT.current_app_folderpath = app_path
 
     # Initially app_context should be None
     assert not CHAT_CONTEXT.app_context

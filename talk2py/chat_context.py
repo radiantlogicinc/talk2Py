@@ -5,6 +5,7 @@ This module provides the ChatContext class which manages the current application
 context and registry caching for the talk2py framework.
 """
 
+import sys
 from typing import Any, Dict, Optional
 
 from talk2py.command_registry import CommandRegistry
@@ -48,7 +49,16 @@ class ChatContext:
                 f"App folder path '{app_folderpath}' has not been registered. Call register_app first."
             )
 
+        # Remove the current app folder path from sys.path if it exists
+        if self._current_app_folderpath and self._current_app_folderpath in sys.path:
+            sys.path.remove(self._current_app_folderpath)
+
+        # Set the new app folder path
         self._current_app_folderpath = app_folderpath
+
+        # Add the new app folder path to sys.path
+        if app_folderpath not in sys.path:
+            sys.path.insert(0, app_folderpath)
 
     def register_app(self, app_folderpath: str) -> None:
         """Register an application folder path and initialize its registry.
@@ -64,6 +74,8 @@ class ChatContext:
         # Initialize the context cache entry if it doesn't exist
         if app_folderpath not in self._current_object_cache:
             self._current_object_cache[app_folderpath] = None
+
+        self.current_app_folderpath = app_folderpath
 
     @property
     def app_context(self) -> dict[str, Any]:
