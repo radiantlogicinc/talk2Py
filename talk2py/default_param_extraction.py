@@ -4,7 +4,7 @@ This module provides a basic implementation of the ParameterExtractionInterface
 for extracting and validating command parameters in talk2py.
 """
 
-from typing import Optional, Tuple
+from typing import Optional, tuple
 
 from pydantic import BaseModel
 
@@ -30,7 +30,7 @@ class DefaultParameterExtraction(ParameterExtractionInterface):
 
     def validate_parameters(
         self, cmd_parameters: BaseModel
-    ) -> Tuple[bool, Optional[str]]:
+    ) -> tuple[bool, Optional[str]]:
         """Validate the command parameters.
 
         Args:

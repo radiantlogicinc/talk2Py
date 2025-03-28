@@ -9,7 +9,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Optional, Set
 
 from talk2py import get_registry
 from talk2py.nlu_engine_interfaces import (
@@ -56,10 +56,10 @@ class NLUOverridesManager:
             app_folder_path, "___command_info", "nlu_engine_metadata.json"
         )
         self.overrides_dir = os.path.join(app_folder_path, "nlu_interface_overrides")
-        self.nlu_metadata: Dict = self._load_or_create_metadata()
-        self.invalid_overrides: List[InvalidOverride] = []
+        self.nlu_metadata: dict = self._load_or_create_metadata()
+        self.invalid_overrides: list[InvalidOverride] = []
 
-    def _load_or_create_metadata(self) -> Dict:
+    def _load_or_create_metadata(self) -> dict:
         """Load existing metadata or create new if not exists/invalid."""
         with contextlib.suppress(json.JSONDecodeError, OSError):
             if os.path.exists(self.metadata_file):
@@ -73,7 +73,7 @@ class NLUOverridesManager:
 
     def _validate_override_implementation(
         self, module_path: str, interface_class: type
-    ) -> Tuple[bool, Optional[str]]:
+    ) -> tuple[bool, Optional[str]]:
         """Validate that a module contains a valid interface implementation.
 
         Args:
@@ -81,7 +81,7 @@ class NLUOverridesManager:
             interface_class: Expected interface class to implement
 
         Returns:
-            Tuple of (is_valid, error_message)
+            tuple of (is_valid, error_message)
         """
         try:
             # Import the module
@@ -201,11 +201,11 @@ class NLUOverridesManager:
         with open(self.metadata_file, "w", encoding="utf-8") as f:
             json.dump(self.nlu_metadata, f, indent=4)
 
-    def get_available_commands(self) -> List[str]:
+    def get_available_commands(self) -> list[str]:
         """Get list of commands that have non-overridden interfaces.
 
         Returns:
-            List of command keys that can be overridden
+            list of command keys that can be overridden
         """
         all_commands = set(
             self.command_registry.command_metadata.get(
@@ -221,14 +221,14 @@ class NLUOverridesManager:
         }
         return sorted(list(all_commands - fully_overridden))
 
-    def get_non_overridden_interfaces(self, command_key: str) -> List[Tuple[int, str]]:
+    def get_non_overridden_interfaces(self, command_key: str) -> list[tuple[int, str]]:
         """Get list of non-overridden interfaces for a command.
 
         Args:
             command_key: The command key to check
 
         Returns:
-            List of tuples (interface_number, interface_name)
+            list of tuples (interface_number, interface_name)
         """
         current_metadata = self.nlu_metadata.get(
             "map_commandkey_2_nluengine_metadata", {}
@@ -358,11 +358,11 @@ class NLUOverridesManager:
         self._save_metadata()
 
 
-def _print_invalid_overrides(invalid_overrides: List[InvalidOverride]) -> None:
+def _print_invalid_overrides(invalid_overrides: list[InvalidOverride]) -> None:
     """Print information about invalid override implementations.
 
     Args:
-        invalid_overrides: List of invalid override implementations
+        invalid_overrides: list of invalid override implementations
     """
     if invalid_overrides:
         print("\nWarning: Found invalid override implementations:")
@@ -373,11 +373,11 @@ def _print_invalid_overrides(invalid_overrides: List[InvalidOverride]) -> None:
         print()
 
 
-def _get_command_selection(available_commands: List[str]) -> Optional[str]:
+def _get_command_selection(available_commands: list[str]) -> Optional[str]:
     """Get command selection from user.
 
     Args:
-        available_commands: List of available commands
+        available_commands: list of available commands
 
     Returns:
         Selected command key or None if user wants to exit
@@ -401,11 +401,11 @@ def _get_command_selection(available_commands: List[str]) -> Optional[str]:
     return None
 
 
-def _get_interface_selection(interfaces: List[Tuple[int, str]]) -> Set[int]:
+def _get_interface_selection(interfaces: list[tuple[int, str]]) -> Set[int]:
     """Get interface selection from user.
 
     Args:
-        interfaces: List of available interfaces
+        interfaces: list of available interfaces
 
     Returns:
         Set of selected interface numbers
@@ -428,7 +428,7 @@ def _get_interface_selection(interfaces: List[Tuple[int, str]]) -> Set[int]:
         return set()
 
 
-def _print_summary(nlu_metadata: Dict) -> None:
+def _print_summary(nlu_metadata: dict) -> None:
     """Print summary of NLU interface overrides.
 
     Args:

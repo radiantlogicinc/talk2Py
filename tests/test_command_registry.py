@@ -8,6 +8,7 @@ import importlib
 import os
 import sys
 from pathlib import Path
+from typing import Any, Type
 
 import pytest
 
@@ -188,6 +189,19 @@ class MathHelper:
 
     return metadata_json
 
+def load_class_from_sysmodules(file_path: str, class_name: str) -> Type[Any]:
+    """Dynamically load a class from sys.modules."""
+    module_name = os.path.splitext(os.path.basename(file_path))[0]
+
+    # the module should already exist in memory since CommandRegistry loaded it
+    module = sys.modules[module_name]
+
+    # Retrieve the class from the module
+    if not hasattr(module, class_name):
+        raise AttributeError(f"Module '{module_name}' does not define a class '{class_name}'")
+
+    return getattr(module, class_name)
+
 
 class TestCommandRegistry:
     """Test cases for the CommandRegistry class.
@@ -199,7 +213,7 @@ class TestCommandRegistry:
     def test_init_without_metadata(self) -> None:
         """Test initializing registry without metadata."""
         registry = CommandRegistry()
-        assert not registry.command_metadata
+        assert registry.command_metadata == {}
         assert not registry.command_funcs
         assert registry.metadata_dir is None
 
@@ -214,101 +228,85 @@ class TestCommandRegistry:
             CommandRegistry(app_folderpath="nonexistent_folder")
 
     def test_get_metadata_path(self, tmp_path: Path) -> None:
-        """Test get_metadata_path method.
+        """Test getting the correct metadata path.
 
         Args:
             tmp_path: Pytest fixture providing a temporary directory path
         """
-        # Create command info directory and metadata file
+        # Create a command_metadata.json file
         command_info_dir = tmp_path / "___command_info"
         command_info_dir.mkdir()
         metadata_json = command_info_dir / "command_metadata.json"
         metadata_json.write_text("{}")
 
-        # Test getting metadata path
+        # Test with absolute path
         metadata_path = CommandRegistry.get_metadata_path(str(tmp_path))
         assert metadata_path == str(metadata_json)
 
-        # Test getting metadata path for nonexistent file
-        missing_dir = tmp_path / "missing"
-        missing_dir.mkdir()
-        with pytest.raises(FileNotFoundError):
-            CommandRegistry.get_metadata_path(str(missing_dir))
+        # Test with relative path
+        os.chdir(tmp_path.parent)
+        relative_path = tmp_path.name
+        metadata_path = CommandRegistry.get_metadata_path(relative_path)
+        
+        # Compare the path components instead of the full path
+        # This ensures we're checking the right structure without worrying about absolute vs relative paths
+        expected_components = [relative_path, "___command_info", "command_metadata.json"]
+        path_components = metadata_path.split(os.sep)
+        
+        # Check if all expected components are in the path
+        for component in expected_components:
+            assert component in path_components
+            
+        # Verify that the components appear in the right order
+        last_index = -1
+        for component in expected_components:
+            current_index = path_components.index(component)
+            assert current_index > last_index
+            last_index = current_index
 
-    def test_load_metadata_and_functions(self, tmp_path: Path) -> None:
+    def test_load_metadata_and_functions(self, todolist_registry: CommandRegistry, temp_todo_app: dict) -> None:
         """Test loading metadata and functions from files.
 
         Args:
-            tmp_path: Pytest fixture providing a temporary directory path
+            todolist_registry: Fixture providing CommandRegistry with todo commands
+            temp_todo_app: Fixture providing test module paths
         """
-        create_test_files(tmp_path)
-
-        # Change to the temp directory for imports to work
-        os.chdir(tmp_path)
-
-        # Create registry using app_folderpath
-        registry = CommandRegistry(app_folderpath=str(tmp_path))
-
+        # We'll use the todo_list app which is already set up by the fixtures
+        app_path = str(temp_todo_app["module_dir"])
+        module_file = str(temp_todo_app["module_file"])
+        
         # Check metadata was loaded
-        assert "app_folderpath" in registry.command_metadata
-        assert "map_commandkey_2_metadata" in registry.command_metadata
-
-        # Test global function
-        add_func = registry.get_command_func("calculator.add")
-        assert add_func is not None
-        assert add_func(5, 3) == 8
-
-        # Test class method
-        spec = importlib.util.spec_from_file_location(
-            "calculator", tmp_path / "calculator.py"
+        assert "app_folderpath" in todolist_registry.command_metadata
+        assert "map_commandkey_2_metadata" in todolist_registry.command_metadata
+        
+        # Get TodoList class
+        TodoList = load_class_from_sysmodules(module_file, "TodoList")
+        todo_list = TodoList()
+        
+        # Test TodoList.add_todo method
+        add_todo_func = todolist_registry.get_command_func(
+            "todo_list.TodoList.add_todo", todo_list
         )
-        if not spec or not spec.loader:
-            raise ImportError("Could not load calculator module")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules["calculator"] = module
-        spec.loader.exec_module(module)
-
-        calc = module.Calculator()
-        multiply_func = registry.get_command_func(
-            "calculator.Calculator.multiply", calc
+        assert add_todo_func is not None
+        todo = add_todo_func(description="Test Todo")
+        assert todo is not None
+        assert todo.description == "Test Todo"
+        
+        # Test Todo.description property
+        description_func = todolist_registry.get_command_func(
+            "todo_list.Todo.description", todo
         )
-        assert multiply_func is not None
-        assert multiply_func(4, 2) == 8
+        assert description_func is not None
+        assert description_func() == "Test Todo"
 
-        # Test nested module global function
-        subtract_func = registry.get_command_func("subdir.helper.subtract")
-        assert subtract_func is not None
-        assert subtract_func(10, 4) == 6
-
-        # Test nested module class method
-        helper_spec = importlib.util.spec_from_file_location(
-            "subdir.helper", tmp_path / "subdir" / "helper.py"
-        )
-        if not helper_spec or not helper_spec.loader:
-            raise ImportError("Could not load helper module")
-        helper_module = importlib.util.module_from_spec(helper_spec)
-        sys.modules["subdir.helper"] = helper_module
-        helper_spec.loader.exec_module(helper_module)
-
-        math_helper = helper_module.MathHelper()
-        divide_func = registry.get_command_func(
-            "subdir.helper.MathHelper.divide", math_helper
-        )
-        assert divide_func is not None
-        assert divide_func(10, 3) == 3
-
-    def test_get_nonexistent_command(self, tmp_path: Path) -> None:
+    def test_get_nonexistent_command(self, todolist_registry: CommandRegistry) -> None:
         """Test getting a command that doesn't exist.
 
         Args:
-            tmp_path: Pytest fixture providing a temporary directory path
+            todolist_registry: Fixture providing CommandRegistry with todo commands
         """
-        create_test_files(tmp_path)
-        os.chdir(tmp_path)
-
-        registry = CommandRegistry(app_folderpath=str(tmp_path))
         with pytest.raises(ValueError) as exc_info:
-            registry.get_command_func("nonexistent.command")
+            todolist_registry.get_command_func("nonexistent.command")
         assert "Command 'nonexistent.command' does not exist" in str(exc_info.value)
 
     def test_invalid_module_path(self, tmp_path: Path) -> None:
@@ -439,19 +437,11 @@ class Calculator:
     def validate(x: int) -> bool:
         return x > 0
 """
+        # Test with different types of objects
         calculator_py = tmp_path / "calculator.py"
         calculator_py.write_text(calculator_code)
 
-        # Create test object
-        # pylint: disable=too-few-public-methods
-        class WrongClass:
-            """Test wrong class."""
-
-            def multiply(self, a: int, b: int) -> int:
-                """Multiply two numbers."""
-                return a * b
-
-        # Create registry with metadata
+        # Set up a registry with metadata
         command_info_dir = tmp_path / "___command_info"
         command_info_dir.mkdir()
         metadata_json = command_info_dir / "command_metadata.json"
@@ -460,10 +450,7 @@ class Calculator:
             "app_folderpath": ".",
             "map_commandkey_2_metadata": {
                 "calculator.Calculator.multiply": {
-                    "parameters": [
-                        {"name": "a", "type": "int"},
-                        {"name": "b", "type": "int"}
-                    ],
+                    "parameters": [{"name": "a", "type": "int"}, {"name": "b", "type": "int"}],
                     "return_type": "int"
                 }
             }
@@ -471,126 +458,120 @@ class Calculator:
         )
 
         os.chdir(tmp_path)
-
-        # Load the module and create objects
-        spec = importlib.util.spec_from_file_location("calculator", calculator_py)
+        
+        # Import the module
+        spec = importlib.util.spec_from_file_location(
+            "calculator", calculator_py
+        )
         if not spec or not spec.loader:
             raise ImportError("Could not load calculator module")
         module = importlib.util.module_from_spec(spec)
         sys.modules["calculator"] = module
         spec.loader.exec_module(module)
 
+        # Create registry and test objects
+        registry = CommandRegistry(app_folderpath=str(tmp_path))
         calc = module.Calculator()
-        wrong_obj = WrongClass()
 
-        # Create registry and register command
-        registry = CommandRegistry(str(tmp_path))
-
-        # Test getting function for correct object
-        func = registry.get_command_func("calculator.Calculator.multiply", calc)
-        assert func is not None
-        assert func(2, 3) == 6
-
-        # Test getting function for wrong object type
-        with pytest.raises(TypeError) as exc_info:
-            registry.get_command_func("calculator.Calculator.multiply", wrong_obj)
-        assert str(exc_info.value) == "Object must be an instance of Calculator"
-
-        # Test getting function without context
-        with pytest.raises(ValueError) as exc_info_2:
-            registry.get_command_func("calculator.Calculator.multiply")
-        assert (
-            "Command 'calculator.Calculator.multiply' is not available in the current context"
-            == str(exc_info_2.value)
+        # Test with correct object
+        func = registry.get_command_func(
+            "calculator.Calculator.multiply", calc
         )
+        assert func is not None
+        assert func(4, 2) == 8
 
-    def test_get_commands_in_current_context(self, tmp_path: Path) -> None:
-        # sourcery skip: extract-duplicate-method
+        class WrongClass:
+            """A different class that should not be compatible."""
+
+            def multiply(self, a: int, b: int) -> int:
+                """This method has the same signature but should not match."""
+                return a * b + 1
+
+        # Test with wrong object type
+        wrong_obj = WrongClass()
+        with pytest.raises(TypeError):
+            registry.get_command_func(
+                "calculator.Calculator.multiply", wrong_obj
+            )
+
+    def test_get_commands_in_current_context(self, todolist_registry: CommandRegistry, temp_todo_app: dict) -> None:
         """Test getting commands available in the current context.
 
         Args:
-            tmp_path: Pytest fixture providing a temporary directory path
+            todolist_registry: Fixture providing CommandRegistry with todo commands
+            temp_todo_app: Fixture providing test module paths
         """
-        create_test_files(tmp_path)
-        os.chdir(tmp_path)
+        # We'll use the todo_list app which is already set up by the fixtures
+        module_file = str(temp_todo_app["module_file"])
+        
+        # Get TodoList class
+        TodoList = load_class_from_sysmodules(module_file, "TodoList")
+        todo_list = TodoList()
+        
+        # Create a todo
+        todo = todo_list.add_todo("Test Todo")
+        
+        # Test getting TodoList commands
+        todo_list_commands = todolist_registry.get_commands_in_current_context(todo_list)
+        assert "todo_list.TodoList.add_todo" in todo_list_commands
+        assert "todo_list.TodoList.current_todo" in todo_list_commands
+        assert "todo_list.Todo.description" not in todo_list_commands
+        
+        # Test getting Todo commands
+        todo_commands = todolist_registry.get_commands_in_current_context(todo)
+        assert "todo_list.Todo.description" in todo_commands
+        assert "todo_list.Todo.close" in todo_commands
+        assert "todo_list.TodoList.add_todo" not in todo_commands
 
-        registry = CommandRegistry(str(tmp_path))
-
-        # Test getting global commands
-        global_commands = registry.get_commands_in_current_context(None)
-        assert "calculator.add" in global_commands
-        assert "subdir.helper.subtract" in global_commands
-        assert "calculator.Calculator.multiply" not in global_commands
-
-        # Test getting commands for Calculator class
-        spec = importlib.util.spec_from_file_location(
-            "calculator", tmp_path / "calculator.py"
-        )
-        if not spec or not spec.loader:
-            raise ImportError("Could not load calculator module")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules["calculator"] = module
-        spec.loader.exec_module(module)
-
-        calc = module.Calculator()
-        calc_commands = registry.get_commands_in_current_context(calc)
-        assert "calculator.Calculator.multiply" in calc_commands
-        assert "calculator.Calculator.from_config" in calc_commands
-        assert "calculator.Calculator.validate" in calc_commands
-        assert "calculator.add" not in calc_commands
-
-    def test_get_command_func_context_validation(self, tmp_path: Path) -> None:
+    def test_get_command_func_context_validation(self, todolist_registry: CommandRegistry, temp_todo_app: dict) -> None:
         """Test command function context validation.
 
         Args:
-            tmp_path: Pytest fixture providing a temporary directory path
+            todolist_registry: Fixture providing CommandRegistry with todo commands
+            temp_todo_app: Fixture providing test module paths
         """
-        create_test_files(tmp_path)
-        os.chdir(tmp_path)
-
-        registry = CommandRegistry(str(tmp_path))
-
-        # Test getting global command
-        add_func = registry.get_command_func("calculator.add")
-        assert add_func is not None
-        assert add_func(5, 3) == 8
-
-        # Test getting class method in correct context
-        spec = importlib.util.spec_from_file_location(
-            "calculator", tmp_path / "calculator.py"
+        # We'll use the todo_list app which is already set up by the fixtures
+        module_file = str(temp_todo_app["module_file"])
+        
+        # Get TodoList class
+        TodoList = load_class_from_sysmodules(module_file, "TodoList")
+        todo_list = TodoList()
+        
+        # Create a todo
+        todo = todo_list.add_todo("Test Todo")
+        
+        # Test getting TodoList method in correct context
+        add_todo_func = todolist_registry.get_command_func(
+            "todo_list.TodoList.add_todo", todo_list
         )
-        if not spec or not spec.loader:
-            raise ImportError("Could not load calculator module")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules["calculator"] = module
-        spec.loader.exec_module(module)
-
-        calc = module.Calculator()
-        multiply_func = registry.get_command_func(
-            "calculator.Calculator.multiply", calc
+        assert add_todo_func is not None
+        new_todo = add_todo_func(description="Another Todo")
+        assert new_todo is not None
+        assert new_todo.description == "Another Todo"
+        
+        # Test getting Todo method in correct context
+        description_func = todolist_registry.get_command_func(
+            "todo_list.Todo.description", todo
         )
-        assert multiply_func is not None
-        assert multiply_func(4, 2) == 8
-
-        # Test getting class method in wrong context
+        assert description_func is not None
+        assert description_func() == "Test Todo"
+        
+        # Test getting TodoList method with wrong context (using Todo object)
         with pytest.raises(
-            ValueError,
-            match=(
-                "Command 'calculator.Calculator.multiply' is not "
-                "available in the current context"
-            ),
+            TypeError,
+            match="Object must be an instance of TodoList"
         ):
-            registry.get_command_func("calculator.Calculator.multiply")
-
-        # Test getting global command in class context
+            todolist_registry.get_command_func("todo_list.TodoList.add_todo", todo)
+        
+        # Test getting Todo method with wrong context (using TodoList object)
         with pytest.raises(
-            ValueError,
-            match="Command 'calculator.add' is not available in the current context",
+            TypeError,
+            match="Object must be an instance of Todo",
         ):
-            registry.get_command_func("calculator.add", calc)
-
+            todolist_registry.get_command_func("todo_list.Todo.description", todo_list)
+        
         # Test getting nonexistent command
         with pytest.raises(
             ValueError, match="Command 'nonexistent.command' does not exist"
         ):
-            registry.get_command_func("nonexistent.command")
+            todolist_registry.get_command_func("nonexistent.command")

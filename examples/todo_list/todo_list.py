@@ -7,7 +7,7 @@ A todolist app demonstrating:
 import os
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Optional
 
 import talk2py
 from talk2py import CHAT_CONTEXT
@@ -18,7 +18,6 @@ class TodoState(Enum):
 
     ACTIVE = "active"
     CLOSED = "closed"
-
 
 # Initialize the global counter for todo IDs
 NEXT_ID = -1
@@ -114,7 +113,7 @@ class TodoList:
 
     def __init__(self) -> None:
         """Initialize an empty todo list."""
-        self._todos: List[Todo] = []
+        self._todos: list[Todo] = []
         self._current_todo: Optional[Todo] = None
 
     @talk2py.command
@@ -166,7 +165,7 @@ class TodoList:
             raise ValueError("Todo item not found in the list") from e
 
     @talk2py.command
-    def get_active_todos(self) -> List[Todo]:
+    def get_active_todos(self) -> list[Todo]:
         """Get all active todo items.
 
         Returns:
@@ -175,7 +174,7 @@ class TodoList:
         return [todo for todo in self._todos if todo.state == TodoState.ACTIVE]
 
     @talk2py.command
-    def get_closed_todos(self) -> List[Todo]:
+    def get_closed_todos(self) -> list[Todo]:
         """Get all closed todo items.
 
         Returns:

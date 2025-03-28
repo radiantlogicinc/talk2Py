@@ -6,41 +6,39 @@ used throughout the talk2py framework to ensure type consistency and reduce comp
 of nested type annotations.
 """
 
-from typing import Any, Callable, Dict, Optional, Type, TypeAlias, Union
+from typing import Any, Callable, Optional, Type, TypeAlias, Union, TYPE_CHECKING
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from talk2py.command_registry import CommandRegistry
 
 # Basic value types
 ParamValue = Union[str, bool, int, float]
 ExtendedParamValue = Union[str, bool, int, float, BaseModel]
 
 # Command related type aliases
-CommandMetadata: TypeAlias = Dict[str, Any]
+CommandMetadata: TypeAlias = dict[str, Any]
 CommandFunc: TypeAlias = Callable[..., Any]
 CommandClass: TypeAlias = Type[Any]
 PropertyFunc: TypeAlias = Callable[..., Any]
 
 # Complex type models
-class ContextData(BaseModel):
+class ContextValue(BaseModel):
     """Model for storing context data values."""
     value: Optional[ParamValue] = None
 
-class AppContext(BaseModel):
-    """Model for storing application context data."""
-    data: Dict[str, ContextData] = {}
+class ContextDict(BaseModel):
+    """Model for storing application context data structure."""
+    data: dict[str, ContextValue] = {}
 
 class ConversationArtifacts(BaseModel):
     """Model for storing conversation artifacts."""
-    data: Dict[str, Optional[ExtendedParamValue]] = {}
+    data: dict[str, Optional[ExtendedParamValue]] = {}
 
 # Type aliases for common dictionary patterns
-# RegistryCache: TypeAlias = Dict[str, 'CommandRegistry']  # type: ignore # noqa
-# Instead of type alias, we'll use a forward reference to the actual class
-from typing import ForwardRef
-RegistryCache = ForwardRef('RegistryCache')
-
-ObjectCache: TypeAlias = Dict[str, Optional[Any]]
-AppContextCache: TypeAlias = Dict[str, Optional[Dict[str, Optional[ParamValue]]]]
+ObjectCache: TypeAlias = dict[str, Optional[Any]]
+AppContextCache: TypeAlias = dict[str, Optional[dict[str, Optional[ParamValue]]]]
 
 # Type alias for conversation history entries
 ConversationEntry: TypeAlias = tuple[str, str, Optional[ConversationArtifacts]]
@@ -49,7 +47,7 @@ ConversationHistory: TypeAlias = list[ConversationEntry]
 __all__ = [
     'ParamValue', 'ExtendedParamValue', 
     'CommandMetadata', 'CommandFunc', 'CommandClass', 'PropertyFunc',
-    'ContextData', 'AppContext', 'ConversationArtifacts',
-    'RegistryCache', 'ObjectCache', 'AppContextCache',
+    'ContextDict', 'ConversationArtifacts',
+    'ObjectCache', 'AppContextCache',
     'ConversationEntry', 'ConversationHistory'
 ] 

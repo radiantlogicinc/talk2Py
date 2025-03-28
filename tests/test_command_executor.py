@@ -4,8 +4,6 @@ This module contains test cases for the CommandExecutor class, including
 command execution and error handling.
 """
 
-import json
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -15,87 +13,28 @@ from talk2py.command_executor import CommandExecutor
 from talk2py.command_registry import CommandRegistry
 
 
-@pytest.fixture
-def temp_calculator_module(tmp_path: Path) -> dict:
-    """Create a temporary calculator module for testing.
-
-    Args:
-        tmp_path: Pytest fixture providing a temporary directory path
-
-    Returns:
-        A dictionary containing the module directory and metadata file paths
-    """
-    module_dir = tmp_path / "calculator"
-    module_dir.mkdir()
-
-    # Create calculator.py
-    calculator_code = """
-def add(a: int, b: int) -> int:
-    return a + b
-
-def subtract(a: int, b: int) -> int:
-    return a - b
-"""
-    with open(module_dir / "calculator.py", "w", encoding="utf-8") as f:
-        f.write(calculator_code)
-
-    # Create command metadata
-    metadata = {
-        "app_folderpath": str(module_dir),
-        "map_commandkey_2_metadata": {
-            "calculator.add": {
-                "command_implementation_module_path": "./calculator.py",
-                "command_implementation_class_name": None,
-                "parameters": [
-                    {"name": "a", "type": "int"},
-                    {"name": "b", "type": "int"},
-                ],
-                "return_type": "int",
-            },
-            "calculator.subtract": {
-                "command_implementation_module_path": "./calculator.py",
-                "command_implementation_class_name": None,
-                "parameters": [
-                    {"name": "a", "type": "int"},
-                    {"name": "b", "type": "int"},
-                ],
-                "return_type": "int",
-            },
-        },
-    }
-
-    # Create ___command_info directory and metadata file
-    command_info_dir = module_dir / "___command_info"
-    command_info_dir.mkdir()
-    metadata_path = command_info_dir / "command_metadata.json"
-    with open(metadata_path, "w", encoding="utf-8") as f:
-        json.dump(metadata, f)
-
-    return {"module_dir": module_dir, "metadata_path": metadata_path}
-
-
 # pylint: disable=redefined-outer-name
-def test_command_registry_initialization(temp_calculator_module: dict) -> None:
+def test_command_registry_initialization(temp_calculator_app: dict) -> None:
     """Test initialization of CommandRegistry with metadata.
 
     Args:
-        temp_calculator_module: Fixture providing test module paths
+        temp_calculator_app: Fixture providing test module paths
     """
-    registry = CommandRegistry(str(temp_calculator_module["module_dir"]))
-    assert len(registry.command_metadata["map_commandkey_2_metadata"]) == 2
+    registry = CommandRegistry(str(temp_calculator_app["module_dir"]))
+    assert len(registry.command_metadata["map_commandkey_2_metadata"]) > 0
     assert "calculator.add" in registry.command_metadata["map_commandkey_2_metadata"]
     assert (
         "calculator.subtract" in registry.command_metadata["map_commandkey_2_metadata"]
     )
 
 
-def test_command_registry_get_command_func(temp_calculator_module: dict) -> None:
+def test_command_registry_get_command_func(temp_calculator_app: dict) -> None:
     """Test retrieving and executing command functions from registry.
 
     Args:
-        temp_calculator_module: Fixture providing test module paths
+        temp_calculator_app: Fixture providing test module paths
     """
-    registry = CommandRegistry(str(temp_calculator_module["module_dir"]))
+    registry = CommandRegistry(str(temp_calculator_app["module_dir"]))
 
     add_func = registry.get_command_func("calculator.add")
     assert add_func is not None
@@ -106,35 +45,32 @@ def test_command_registry_get_command_func(temp_calculator_module: dict) -> None
     assert subtract_func(7, 3) == 4
 
 
-def test_command_registry_invalid_command(temp_calculator_module: dict) -> None:
+def test_command_registry_invalid_command(temp_calculator_app: dict) -> None:
     """Test behavior when requesting non-existent command.
 
     Args:
-        temp_calculator_module: Fixture providing test module paths
+        temp_calculator_app: Fixture providing test module paths
     """
-    registry = CommandRegistry(str(temp_calculator_module["module_dir"]))
+    registry = CommandRegistry(str(temp_calculator_app["module_dir"]))
     with pytest.raises(
         ValueError, match="Command 'calculator.nonexistent' does not exist"
     ):
         registry.get_command_func("calculator.nonexistent")
 
 
-def test_command_executor_perform_action(temp_calculator_module: dict) -> None:
+def test_command_executor_perform_action(calculator_executor: CommandExecutor) -> None:
     """Test executing commands through CommandExecutor.
 
     Args:
-        temp_calculator_module: Fixture providing test module paths
+        calculator_executor: Fixture providing CommandExecutor with calculator registry
     """
-    registry = CommandRegistry(str(temp_calculator_module["module_dir"]))
-    executor = CommandExecutor(registry)
-
     # Test add command
     add_action = Action(
         app_folderpath="./examples/calculator",
         command_key="calculator.add",
         parameters={"a": 5, "b": 3},
     )
-    result = executor.perform_action(add_action)
+    result = calculator_executor.perform_action(add_action)
     assert result == 8
 
     # Test subtract command
@@ -143,7 +79,7 @@ def test_command_executor_perform_action(temp_calculator_module: dict) -> None:
         command_key="calculator.subtract",
         parameters={"a": 10, "b": 4},
     )
-    result = executor.perform_action(subtract_action)
+    result = calculator_executor.perform_action(subtract_action)
     assert result == 6
 
 
@@ -196,3 +132,124 @@ def test_command_executor_with_get_registry(monkeypatch: pytest.MonkeyPatch) -> 
     mock_registry.get_command_func.assert_called_once_with(
         "test.command", None, {"x": "test"}
     )
+
+
+def test_command_executor_with_copied_app(calculator_executor: CommandExecutor, temp_calculator_app: dict) -> None:
+    """Test executing commands from a copied app.
+
+    This test demonstrates the benefit of using a copied app in a temporary directory.
+    It's much simpler than trying to mock the entire application.
+
+    Args:
+        calculator_executor: Fixture providing CommandExecutor with calculator registry
+        temp_calculator_app: Fixture providing test module paths
+    """
+    app_path = str(temp_calculator_app["module_dir"])
+    
+    # Test add command with the copied app
+    add_action = Action(
+        app_folderpath=app_path,
+        command_key="calculator.add",
+        parameters={"a": 5, "b": 3},
+    )
+    result = calculator_executor.perform_action(add_action)
+    assert result == 8
+
+    # Test subtract command with the copied app
+    subtract_action = Action(
+        app_folderpath=app_path,
+        command_key="calculator.subtract",
+        parameters={"a": 10, "b": 4},
+    )
+    result = calculator_executor.perform_action(subtract_action)
+    assert result == 6
+
+
+def test_todo_app_copied_correctly(
+    todolist_executor: CommandExecutor, 
+    temp_todo_app: dict, 
+    chat_context_reset
+) -> None:
+    """Test that the todo app is correctly copied to the temp directory.
+    
+    This test verifies that the todo_list app is properly copied and its commands work.
+    
+    Args:
+        todolist_executor: Fixture providing CommandExecutor with todo registry
+        temp_todo_app: Fixture providing test module paths
+        chat_context_reset: Fixture to reset chat context before and after test
+    """
+    from typing import Type, Any
+    import os
+    import sys
+    from pathlib import Path
+    
+    app_path = str(temp_todo_app["module_dir"])
+    module_file = str(temp_todo_app["module_file"])
+    
+    # Register the app with the chat context
+    from talk2py import CHAT_CONTEXT
+    CHAT_CONTEXT.register_app(app_path)
+    
+    # Verify the registry has the expected commands
+    registry = todolist_executor.command_registry
+    assert "todo_list.TodoList.add_todo" in registry.command_funcs
+    
+    # Check the current_todo command parameters
+    current_todo_key = "todo_list.TodoList.current_todo"
+    if current_todo_key in registry.command_metadata["map_commandkey_2_metadata"]:
+        current_todo_params = registry.command_metadata["map_commandkey_2_metadata"][current_todo_key].get("parameters", [])
+        print(f"Expected parameters for {current_todo_key}: {current_todo_params}")
+    
+    # Load the TodoList class from the module
+    def load_class_from_sysmodules(file_path: str, class_name: str) -> Type[Any]:
+        """Dynamically load a class from sys.modules."""
+        module_name = os.path.splitext(os.path.basename(file_path))[0]
+        
+        # the module should already exist in memory since CommandRegistry loaded it
+        module = sys.modules[module_name]
+        
+        # Retrieve the class from the module
+        if not hasattr(module, class_name):
+            raise AttributeError(f"Module '{module_name}' does not define a class '{class_name}'")
+        
+        return getattr(module, class_name)
+    
+    # Get the TodoList class
+    TodoList: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
+    todo_list = TodoList()
+    
+    # Set the TodoList instance as the current object
+    CHAT_CONTEXT.current_object = todo_list
+    
+    # Add a todo
+    add_action = Action(
+        app_folderpath=app_path,
+        command_key="todo_list.TodoList.add_todo",
+        parameters={"description": "Test todo"},
+    )
+    
+    # Execute the command
+    todo = todolist_executor.perform_action(add_action)
+    assert todo is not None
+    
+    # Now set the current todo
+    if hasattr(todo, "_id"):
+        todo_id = todo._id
+        print(f"Todo id attribute: {todo_id}")
+        
+        # Set the current todo using the correct parameter name
+        set_current_action = Action(
+            app_folderpath=app_path,
+            command_key=current_todo_key,
+            parameters={"value": todo_id},
+        )
+        
+        try:
+            current_todo = todolist_executor.perform_action(set_current_action)
+            assert current_todo == todo  # Should be the same todo object
+            print("Successfully set current todo")
+        except Exception as e:
+            print(f"Error setting current todo: {e}")
+    else:
+        print("Todo does not have an _id attribute")

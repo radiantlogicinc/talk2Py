@@ -7,7 +7,7 @@ of CommandRegistry instances to avoid redundant loading of command metadata.
 
 import logging
 import os
-from typing import Dict
+from typing import dict
 
 from talk2py.command_registry import CommandRegistry
 
@@ -20,7 +20,7 @@ class RegistryCache:
     """
 
     # In-memory cache of CommandRegistry instances keyed by app_folderpath
-    _cache: Dict[str, CommandRegistry] = {}
+    _cache: dict[str, CommandRegistry] = {}
 
     @classmethod
     def load_registry(cls, app_folderpath: str) -> CommandRegistry:

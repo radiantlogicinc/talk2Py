@@ -11,7 +11,7 @@ import json
 import logging
 import threading
 from logging.handlers import RotatingFileHandler
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Optional
 
 import dspy  # type: ignore
 from pydantic import BaseModel
@@ -21,9 +21,9 @@ class DSPyProgramLog(BaseModel):
     """DSPy Program Log"""
 
     dspy_program_class: str
-    dspy_input_args: Tuple[Any, ...] = ()
-    dspy_input_kwargs: Dict[str, Any] = {}
-    dspy_completions_dict: Dict[str, Any] = {}
+    dspy_input_args: tuple[Any, ...] = ()
+    dspy_input_kwargs: dict[str, Any] = {}
+    dspy_completions_dict: dict[str, Any] = {}
     # dspy_module_logs: list[DSPyModuleLog] = []
 
 

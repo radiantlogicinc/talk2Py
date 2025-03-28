@@ -9,7 +9,7 @@ import json
 import os
 import sys
 from types import MethodType
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, cast
+from typing import Any, Callable, Optional, Type, cast
 
 
 class CommandRegistry:  # pylint: disable=too-many-instance-attributes
@@ -33,14 +33,14 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
             command_metadata_path: Optional path to a JSON file containing
                                 command metadata. Deprecated, use app_folderpath instead.
         """
-        self.command_metadata: Dict[str, Any] = {}
-        self.command_funcs: Dict[str, Callable[..., Any]] = {}
-        self.command_classes: Dict[str, Type[Any]] = {}
+        self.command_metadata: dict[str, Any] = {}
+        self.command_funcs: dict[str, Callable[..., Any]] = {}
+        self.command_classes: dict[str, Type[Any]] = {}
         self.metadata_dir: Optional[str] = None
         # Store property setters in a separate dict for special handling
-        self.property_setters: Dict[str, Callable[..., Any]] = {}
+        self.property_setters: dict[str, Callable[..., Any]] = {}
         # Track which keys are property getters
-        self.property_getters: Dict[str, bool] = {}
+        self.property_getters: dict[str, bool] = {}
 
         if app_folderpath:
             metadata_path = self.get_metadata_path(app_folderpath)
@@ -93,7 +93,7 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
         ).items():
             self._load_command_func(command_key, metadata)
 
-    def _load_command_func(self, command_key: str, metadata: Dict[str, Any]) -> None:
+    def _load_command_func(self, command_key: str, metadata: dict[str, Any]) -> None:
         """Load a command function from its module path.
 
         Args:
@@ -125,15 +125,15 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
 
     def _parse_command_key(
         self, command_key: str
-    ) -> Tuple[List[str], Optional[str], str]:
+    ) -> tuple[list[str], Optional[str], str]:
         """Parse a command key into its components.
 
         Args:
             command_key: The command key to parse
 
         Returns:
-            Tuple containing:
-            - module_parts: List of module path components
+            tuple containing:
+            - module_parts: list of module path components
             - class_name: Optional class name (None for global functions)
             - func_name: Function name
         """
@@ -150,11 +150,11 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
         func_name = parts[-1]
         return module_parts, class_name, func_name
 
-    def _import_module(self, module_parts: List[str]) -> Any:
+    def _import_module(self, module_parts: list[str]) -> Any:
         """Import a module from its parts.
 
         Args:
-            module_parts: List of module path components
+            module_parts: list of module path components
 
         Returns:
             The imported module
@@ -188,6 +188,9 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
         Raises:
             ImportError: If the module cannot be loaded
         """
+        if module_name in sys.modules:
+            return sys.modules[module_name]
+
         # Import the module
         spec = importlib.util.spec_from_file_location(module_name, module_file)
         if not spec or not spec.loader:
@@ -205,7 +208,7 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
         module: Any,
         class_name: str,
         func_name: str,
-        metadata: Dict[str, Any],
+        metadata: dict[str, Any],
     ) -> None:
         """Register a class method as a command.
 
@@ -240,7 +243,7 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
         self.command_classes[command_key] = class_obj
 
     def _register_module_function(
-        self, command_key: str, module: Any, func_name: str, metadata: Dict[str, Any]
+        self, command_key: str, module: Any, func_name: str, metadata: dict[str, Any]
     ) -> None:
         """Register a module function as a command.
 
@@ -266,7 +269,7 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
         self._register_attribute(command_key, attr, metadata)
 
     def _register_attribute(
-        self, command_key: str, attr: Any, metadata: Dict[str, Any]
+        self, command_key: str, attr: Any, metadata: dict[str, Any]
     ) -> None:
         """Register an attribute (function or property) as a command.
 
@@ -282,7 +285,7 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
             self.property_getters[command_key] = False
 
     def _register_property(
-        self, command_key: str, prop: property, metadata: Dict[str, Any]
+        self, command_key: str, prop: property, metadata: dict[str, Any]
     ) -> None:
         """Register a property as a command.
 
@@ -308,7 +311,7 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
         self,
         command_key: str,
         obj: Optional[Any] = None,
-        params: Optional[Dict[str, Any]] = None,
+        params: Optional[dict[str, Any]] = None,
     ) -> Callable[..., Any]:
         """Get the command function for a given command key.
 
@@ -389,7 +392,7 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
 
     def get_commands_in_current_context(
         self, current_context: Optional[Any] = None
-    ) -> List[str]:
+    ) -> list[str]:
         """Get command keys available in the current context.
 
         Args:
@@ -398,7 +401,7 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
                            If provided, returns class methods for the object's class.
 
         Returns:
-            List of command keys available in the current context.
+            list of command keys available in the current context.
         """
         if current_context is None:
             # Return global functions (those not in command_classes)

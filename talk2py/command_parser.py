@@ -5,7 +5,7 @@ Command parser module for extracting and parsing commands from Python files.
 import ast
 import os
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 
 def is_command_decorated(node: ast.FunctionDef) -> bool:
@@ -124,7 +124,7 @@ def extract_type_annotation(
     if isinstance(annotation, ast.Name):
         result = normalize_type_annotation(annotation.id, module_name)
     elif isinstance(annotation, ast.Subscript):
-        # Handle complex types like List[int]
+        # Handle complex types like list[int]
         value_id = extract_type_annotation(annotation.value, module_name)
         slice_value = extract_type_annotation(annotation.slice, module_name)
         result = f"{value_id}[{slice_value}]"
@@ -146,7 +146,7 @@ def extract_type_annotation(
 
 def extract_function_metadata(
     func_def: ast.FunctionDef, module_name: Optional[str] = None
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Extract metadata from a function definition.
 
@@ -185,7 +185,7 @@ def extract_function_metadata(
 
 def parse_python_file(
     file_path: str, app_folder_path: str
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """
     Parse a Python file and extract metadata for command-decorated functions.
 
@@ -243,7 +243,7 @@ def parse_python_file(
     return commands
 
 
-def scan_directory_for_commands(directory_path: str) -> Dict[str, Dict[str, Any]]:
+def scan_directory_for_commands(directory_path: str) -> dict[str, dict[str, Any]]:
     """
     Recursively scan a directory for Python files and extract command metadata.
 
@@ -253,7 +253,7 @@ def scan_directory_for_commands(directory_path: str) -> Dict[str, Dict[str, Any]
     Returns:
         Dictionary mapping command names to their metadata
     """
-    all_commands: Dict[str, Dict[str, Any]] = {}
+    all_commands: dict[str, dict[str, Any]] = {}
 
     for root, _, files in os.walk(directory_path):
         for file in files:

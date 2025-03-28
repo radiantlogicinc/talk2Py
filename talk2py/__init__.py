@@ -5,13 +5,13 @@ that can be called from natural language.
 
 import os
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Optional
 
 from talk2py.chat_context import ChatContext
 from talk2py.command_registry import CommandRegistry
 from talk2py.types import ExtendedParamValue
 
-_env_vars: Dict[str, str] = {}  # Initialize the global variable with type annotation
+_env_vars: dict[str, str] = {}  # Initialize the global variable with type annotation
 
 # Global instance of ChatContext to be used throughout the application
 CHAT_CONTEXT = ChatContext()
@@ -31,7 +31,7 @@ class Action:
 
     app_folderpath: str
     command_key: str
-    parameters: Dict[str, Optional[ExtendedParamValue]] = field(default_factory=dict)
+    parameters: dict[str, Optional[ExtendedParamValue]] = field(default_factory=dict)
 
 
 def command(func):

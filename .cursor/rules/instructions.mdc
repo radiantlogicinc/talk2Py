@@ -11,14 +11,17 @@ You are an world-class python developer experienced in large scale software deve
 - Use type hints for function signatures for better code readability and error detection.
 - Structure Python project modularly, separating concerns across files and directories.
 - Make sure you keep any comments that exist in a file.
+- Use dict, list and tuple instead of Dict, List and Tuple
 
 # Agent Behavior
 - Read the requirements.md and design.md files in the /docs folder first to review the product requirements and high-level architecture and design specifications
 - Before coding, write a short plan and draft a preliminary design
 - Implement the code after plan and design approval
-- Write basic tests to confirm each feature works
-- After code changes, run 'make test' and iterate until all linting and pytest failures are resolved
-- Review and update the requirements.md and design.md files in the ./docs folder after every code change, if appropriate
+- After code changes
+    - Write or update pytests in the tests folder as appropriate 
+    - Run 'make test' and iterate until all linting and pytest failures are resolved
+    - Review and update [requirements.md](mdc:docs/requirements.md) and [design.md](mdc:docs/design.md) files as appropriate
+    - Review and update [coding_insights.md](mdc:insights/coding_insights.md) as appropriate
 
 # Debugging
 - Insert logging.debug() calls in relevant code for debugging. Python logging helper functions are implemented in ./talk2py/utils/logging.py

@@ -5,7 +5,7 @@ Test commands for testing the command registry generator.
 
 import ast
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from talk2py import command
 from talk2py.command_parser import (
@@ -51,19 +51,19 @@ def simple_function(a: int, b: int) -> int:
 
 @command
 def function_with_complex_types(
-    data: List[Dict[str, Any]], threshold: Optional[float] = None
-) -> Dict[str, Any]:
+    data: list[dict[str, Any]], threshold: Optional[float] = None
+) -> dict[str, Any]:
     """
     Function with complex type annotations.
 
     Args:
-        data: List of dictionaries
+        data: list of dictionaries
         threshold: Optional threshold for filtering
 
     Returns:
         Filtered data
     """
-    result: Dict[str, Any] = {"items": []}
+    result: dict[str, Any] = {"items": []}
 
     for item in data:
         if threshold is None or item.get("value", 0) > threshold:
@@ -183,7 +183,7 @@ class TestCommandParser:
         assert extract_type_annotation(bool_annotation) == "bool"
 
         # Test complex types
-        code = "def test_func(a: List[int], b: Dict[str, Any]) -> Optional[float]: pass"
+        code = "def test_func(a: list[int], b: dict[str, Any]) -> Optional[float]: pass"
         tree = ast.parse(code)
         func_def = tree.body[0]
 
