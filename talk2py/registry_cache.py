@@ -7,7 +7,6 @@ of CommandRegistry instances to avoid redundant loading of command metadata.
 
 import logging
 import os
-from typing import dict
 
 from talk2py.command_registry import CommandRegistry
 
@@ -53,10 +52,10 @@ class RegistryCache:
         # Create a new registry instance
         logging.debug("Creating new CommandRegistry for: %s", abs_path)
         registry = CommandRegistry(abs_path)
-        
+
         # Cache the registry
         cls._cache[abs_path] = registry
-        
+
         return registry
 
     @classmethod
@@ -81,5 +80,5 @@ class RegistryCache:
         abs_path = os.path.abspath(app_folderpath)
         if abs_path not in cls._cache:
             raise ValueError(f"No registry cached for app: {abs_path}")
-        
-        return cls._cache[abs_path] 
+
+        return cls._cache[abs_path]

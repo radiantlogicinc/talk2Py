@@ -50,7 +50,7 @@ packages = ["talk2py"]
 max-line-length = 120
 
 [tool.pylint."tests.*"]
-disable = ["R0801"]
+disable = ["R0801", "W0621"]
 
 [tool.ruff]
 line-length = 120

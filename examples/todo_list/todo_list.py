@@ -19,6 +19,7 @@ class TodoState(Enum):
     ACTIVE = "active"
     CLOSED = "closed"
 
+
 # Initialize the global counter for todo IDs
 NEXT_ID = -1
 

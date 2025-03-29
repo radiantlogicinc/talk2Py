@@ -189,6 +189,7 @@ class MathHelper:
 
     return metadata_json
 
+
 def load_class_from_sysmodules(file_path: str, class_name: str) -> Type[Any]:
     """Dynamically load a class from sys.modules."""
     module_name = os.path.splitext(os.path.basename(file_path))[0]
@@ -198,7 +199,9 @@ def load_class_from_sysmodules(file_path: str, class_name: str) -> Type[Any]:
 
     # Retrieve the class from the module
     if not hasattr(module, class_name):
-        raise AttributeError(f"Module '{module_name}' does not define a class '{class_name}'")
+        raise AttributeError(
+            f"Module '{module_name}' does not define a class '{class_name}'"
+        )
 
     return getattr(module, class_name)
 
@@ -247,16 +250,20 @@ class TestCommandRegistry:
         os.chdir(tmp_path.parent)
         relative_path = tmp_path.name
         metadata_path = CommandRegistry.get_metadata_path(relative_path)
-        
+
         # Compare the path components instead of the full path
         # This ensures we're checking the right structure without worrying about absolute vs relative paths
-        expected_components = [relative_path, "___command_info", "command_metadata.json"]
+        expected_components = [
+            relative_path,
+            "___command_info",
+            "command_metadata.json",
+        ]
         path_components = metadata_path.split(os.sep)
-        
+
         # Check if all expected components are in the path
         for component in expected_components:
             assert component in path_components
-            
+
         # Verify that the components appear in the right order
         last_index = -1
         for component in expected_components:
@@ -264,7 +271,9 @@ class TestCommandRegistry:
             assert current_index > last_index
             last_index = current_index
 
-    def test_load_metadata_and_functions(self, todolist_registry: CommandRegistry, temp_todo_app: dict) -> None:
+    def test_load_metadata_and_functions(
+        self, todolist_registry: CommandRegistry, temp_todo_app: dict
+    ) -> None:
         """Test loading metadata and functions from files.
 
         Args:
@@ -272,17 +281,16 @@ class TestCommandRegistry:
             temp_todo_app: Fixture providing test module paths
         """
         # We'll use the todo_list app which is already set up by the fixtures
-        app_path = str(temp_todo_app["module_dir"])
         module_file = str(temp_todo_app["module_file"])
-        
+
         # Check metadata was loaded
         assert "app_folderpath" in todolist_registry.command_metadata
         assert "map_commandkey_2_metadata" in todolist_registry.command_metadata
-        
+
         # Get TodoList class
-        TodoList = load_class_from_sysmodules(module_file, "TodoList")
-        todo_list = TodoList()
-        
+        todolist_class = load_class_from_sysmodules(module_file, "TodoList")
+        todo_list = todolist_class()
+
         # Test TodoList.add_todo method
         add_todo_func = todolist_registry.get_command_func(
             "todo_list.TodoList.add_todo", todo_list
@@ -291,7 +299,7 @@ class TestCommandRegistry:
         todo = add_todo_func(description="Test Todo")
         assert todo is not None
         assert todo.description == "Test Todo"
-        
+
         # Test Todo.description property
         description_func = todolist_registry.get_command_func(
             "todo_list.Todo.description", todo
@@ -458,11 +466,9 @@ class Calculator:
         )
 
         os.chdir(tmp_path)
-        
+
         # Import the module
-        spec = importlib.util.spec_from_file_location(
-            "calculator", calculator_py
-        )
+        spec = importlib.util.spec_from_file_location("calculator", calculator_py)
         if not spec or not spec.loader:
             raise ImportError("Could not load calculator module")
         module = importlib.util.module_from_spec(spec)
@@ -474,12 +480,11 @@ class Calculator:
         calc = module.Calculator()
 
         # Test with correct object
-        func = registry.get_command_func(
-            "calculator.Calculator.multiply", calc
-        )
+        func = registry.get_command_func("calculator.Calculator.multiply", calc)
         assert func is not None
         assert func(4, 2) == 8
 
+        # pylint: disable=too-few-public-methods
         class WrongClass:
             """A different class that should not be compatible."""
 
@@ -490,11 +495,11 @@ class Calculator:
         # Test with wrong object type
         wrong_obj = WrongClass()
         with pytest.raises(TypeError):
-            registry.get_command_func(
-                "calculator.Calculator.multiply", wrong_obj
-            )
+            registry.get_command_func("calculator.Calculator.multiply", wrong_obj)
 
-    def test_get_commands_in_current_context(self, todolist_registry: CommandRegistry, temp_todo_app: dict) -> None:
+    def test_get_commands_in_current_context(
+        self, todolist_registry: CommandRegistry, temp_todo_app: dict
+    ) -> None:
         """Test getting commands available in the current context.
 
         Args:
@@ -503,27 +508,31 @@ class Calculator:
         """
         # We'll use the todo_list app which is already set up by the fixtures
         module_file = str(temp_todo_app["module_file"])
-        
+
         # Get TodoList class
-        TodoList = load_class_from_sysmodules(module_file, "TodoList")
-        todo_list = TodoList()
-        
+        todolist_class = load_class_from_sysmodules(module_file, "TodoList")
+        todo_list = todolist_class()
+
         # Create a todo
         todo = todo_list.add_todo("Test Todo")
-        
+
         # Test getting TodoList commands
-        todo_list_commands = todolist_registry.get_commands_in_current_context(todo_list)
+        todo_list_commands = todolist_registry.get_commands_in_current_context(
+            todo_list
+        )
         assert "todo_list.TodoList.add_todo" in todo_list_commands
         assert "todo_list.TodoList.current_todo" in todo_list_commands
         assert "todo_list.Todo.description" not in todo_list_commands
-        
+
         # Test getting Todo commands
         todo_commands = todolist_registry.get_commands_in_current_context(todo)
         assert "todo_list.Todo.description" in todo_commands
         assert "todo_list.Todo.close" in todo_commands
         assert "todo_list.TodoList.add_todo" not in todo_commands
 
-    def test_get_command_func_context_validation(self, todolist_registry: CommandRegistry, temp_todo_app: dict) -> None:
+    def test_get_command_func_context_validation(
+        self, todolist_registry: CommandRegistry, temp_todo_app: dict
+    ) -> None:
         """Test command function context validation.
 
         Args:
@@ -532,14 +541,14 @@ class Calculator:
         """
         # We'll use the todo_list app which is already set up by the fixtures
         module_file = str(temp_todo_app["module_file"])
-        
+
         # Get TodoList class
-        TodoList = load_class_from_sysmodules(module_file, "TodoList")
-        todo_list = TodoList()
-        
+        todolist_class = load_class_from_sysmodules(module_file, "TodoList")
+        todo_list = todolist_class()
+
         # Create a todo
         todo = todo_list.add_todo("Test Todo")
-        
+
         # Test getting TodoList method in correct context
         add_todo_func = todolist_registry.get_command_func(
             "todo_list.TodoList.add_todo", todo_list
@@ -548,28 +557,25 @@ class Calculator:
         new_todo = add_todo_func(description="Another Todo")
         assert new_todo is not None
         assert new_todo.description == "Another Todo"
-        
+
         # Test getting Todo method in correct context
         description_func = todolist_registry.get_command_func(
             "todo_list.Todo.description", todo
         )
         assert description_func is not None
         assert description_func() == "Test Todo"
-        
+
         # Test getting TodoList method with wrong context (using Todo object)
-        with pytest.raises(
-            TypeError,
-            match="Object must be an instance of TodoList"
-        ):
+        with pytest.raises(TypeError, match="Object must be an instance of TodoList"):
             todolist_registry.get_command_func("todo_list.TodoList.add_todo", todo)
-        
+
         # Test getting Todo method with wrong context (using TodoList object)
         with pytest.raises(
             TypeError,
             match="Object must be an instance of Todo",
         ):
             todolist_registry.get_command_func("todo_list.Todo.description", todo_list)
-        
+
         # Test getting nonexistent command
         with pytest.raises(
             ValueError, match="Command 'nonexistent.command' does not exist"

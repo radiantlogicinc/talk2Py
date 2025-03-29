@@ -4,11 +4,13 @@ This module contains test cases for the CommandExecutor class, including
 command execution and error handling.
 """
 
-from unittest.mock import MagicMock
+import os
+import sys
+from typing import Any, Type
 
 import pytest
 
-from talk2py import Action
+from talk2py import CHAT_CONTEXT, Action
 from talk2py.command_executor import CommandExecutor
 from talk2py.command_registry import CommandRegistry
 
@@ -101,40 +103,44 @@ def test_command_executor_invalid_command() -> None:
         executor.perform_action(invalid_action)
 
 
-def test_command_executor_with_get_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_command_executor_with_get_registry(
+    _chat_context_reset, temp_calculator_app
+) -> None:
     """Test CommandExecutor using get_registry function.
 
+    This test checks that a CommandExecutor can get a registry from CHAT_CONTEXT.
+
     Args:
-        monkeypatch: Pytest fixture for patching attributes
+        _chat_context_reset: Fixture to reset chat context
+        temp_calculator_app: Fixture providing test module paths
+        calculator_registry: Fixture providing CommandRegistry with calculator commands
     """
-    # Mock the get_registry function
-    mock_registry = MagicMock()
-    mock_registry.get_command_func.return_value = lambda x: f"Result: {x}"
+    app_path = temp_calculator_app["module_dir"]
 
-    # Patch get_registry to return our mock registry
-    monkeypatch.setattr("talk2py.get_registry", lambda app_path: mock_registry)
+    # Register the app in the chat context
+    CHAT_CONTEXT.register_app(app_path)
 
-    # Create a CommandExecutor without providing a registry
+    # Create a CommandExecutor without providing a registry directly
+    # It should use get_registry to obtain one
     executor = CommandExecutor()
 
     # Create an action
     action = Action(
-        app_folderpath="/mock/path",
-        command_key="test.command",
-        parameters={"x": "test"},
+        app_folderpath=app_path,
+        command_key="calculator.add",
+        parameters={"a": 7, "b": 3},
     )
 
-    # Execute the action
+    # Execute the action - this should automatically get the registry from CHAT_CONTEXT
     result = executor.perform_action(action)
 
-    # Verify the action was executed with the registry from get_registry
-    assert result == "Result: test"
-    mock_registry.get_command_func.assert_called_once_with(
-        "test.command", None, {"x": "test"}
-    )
+    # Verify the action was executed correctly
+    assert result == 10
 
 
-def test_command_executor_with_copied_app(calculator_executor: CommandExecutor, temp_calculator_app: dict) -> None:
+def test_command_executor_with_copied_app(
+    calculator_executor: CommandExecutor, temp_calculator_app: dict
+) -> None:
     """Test executing commands from a copied app.
 
     This test demonstrates the benefit of using a copied app in a temporary directory.
@@ -145,7 +151,7 @@ def test_command_executor_with_copied_app(calculator_executor: CommandExecutor, 
         temp_calculator_app: Fixture providing test module paths
     """
     app_path = str(temp_calculator_app["module_dir"])
-    
+
     # Test add command with the copied app
     add_action = Action(
         app_folderpath=app_path,
@@ -165,91 +171,90 @@ def test_command_executor_with_copied_app(calculator_executor: CommandExecutor, 
     assert result == 6
 
 
+# pylint: disable=too-many-locals
 def test_todo_app_copied_correctly(
-    todolist_executor: CommandExecutor, 
-    temp_todo_app: dict, 
-    chat_context_reset
+    todolist_executor: CommandExecutor, temp_todo_app: dict, _chat_context_reset
 ) -> None:
     """Test that the todo app is correctly copied to the temp directory.
-    
+
     This test verifies that the todo_list app is properly copied and its commands work.
-    
+
     Args:
         todolist_executor: Fixture providing CommandExecutor with todo registry
         temp_todo_app: Fixture providing test module paths
-        chat_context_reset: Fixture to reset chat context before and after test
+        _chat_context_reset: Fixture to reset chat context before and after test
     """
-    from typing import Type, Any
-    import os
-    import sys
-    from pathlib import Path
-    
     app_path = str(temp_todo_app["module_dir"])
     module_file = str(temp_todo_app["module_file"])
-    
-    # Register the app with the chat context
-    from talk2py import CHAT_CONTEXT
     CHAT_CONTEXT.register_app(app_path)
-    
+
     # Verify the registry has the expected commands
     registry = todolist_executor.command_registry
+    assert registry is not None
     assert "todo_list.TodoList.add_todo" in registry.command_funcs
-    
+
     # Check the current_todo command parameters
     current_todo_key = "todo_list.TodoList.current_todo"
-    if current_todo_key in registry.command_metadata["map_commandkey_2_metadata"]:
-        current_todo_params = registry.command_metadata["map_commandkey_2_metadata"][current_todo_key].get("parameters", [])
+    if (
+        registry is not None
+        and current_todo_key in registry.command_metadata["map_commandkey_2_metadata"]
+    ):
+        current_todo_params = registry.command_metadata["map_commandkey_2_metadata"][
+            current_todo_key
+        ].get("parameters", [])
         print(f"Expected parameters for {current_todo_key}: {current_todo_params}")
-    
+
     # Load the TodoList class from the module
     def load_class_from_sysmodules(file_path: str, class_name: str) -> Type[Any]:
         """Dynamically load a class from sys.modules."""
         module_name = os.path.splitext(os.path.basename(file_path))[0]
-        
+
         # the module should already exist in memory since CommandRegistry loaded it
         module = sys.modules[module_name]
-        
+
         # Retrieve the class from the module
         if not hasattr(module, class_name):
-            raise AttributeError(f"Module '{module_name}' does not define a class '{class_name}'")
-        
+            raise AttributeError(
+                f"Module '{module_name}' does not define a class '{class_name}'"
+            )
+
         return getattr(module, class_name)
-    
+
     # Get the TodoList class
-    TodoList: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
-    todo_list = TodoList()
-    
+    todolist_class: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
+    todo_list = todolist_class()
+
     # Set the TodoList instance as the current object
     CHAT_CONTEXT.current_object = todo_list
-    
+
     # Add a todo
     add_action = Action(
         app_folderpath=app_path,
         command_key="todo_list.TodoList.add_todo",
         parameters={"description": "Test todo"},
     )
-    
+
     # Execute the command
     todo = todolist_executor.perform_action(add_action)
     assert todo is not None
-    
+
     # Now set the current todo
-    if hasattr(todo, "_id"):
-        todo_id = todo._id
+    if hasattr(todo, "id"):
+        todo_id = todo.id
         print(f"Todo id attribute: {todo_id}")
-        
+
         # Set the current todo using the correct parameter name
         set_current_action = Action(
             app_folderpath=app_path,
             command_key=current_todo_key,
             parameters={"value": todo_id},
         )
-        
+
         try:
             current_todo = todolist_executor.perform_action(set_current_action)
             assert current_todo == todo  # Should be the same todo object
             print("Successfully set current todo")
-        except Exception as e:
+        except (ValueError, TypeError) as e:
             print(f"Error setting current todo: {e}")
     else:
         print("Todo does not have an _id attribute")

@@ -6,7 +6,7 @@ used throughout the talk2py framework to ensure type consistency and reduce comp
 of nested type annotations.
 """
 
-from typing import Any, Callable, Optional, Type, TypeAlias, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Optional, Type, TypeAlias, Union
 
 from pydantic import BaseModel
 
@@ -23,18 +23,25 @@ CommandFunc: TypeAlias = Callable[..., Any]
 CommandClass: TypeAlias = Type[Any]
 PropertyFunc: TypeAlias = Callable[..., Any]
 
+
 # Complex type models
 class ContextValue(BaseModel):
     """Model for storing context data values."""
+
     value: Optional[ParamValue] = None
+
 
 class ContextDict(BaseModel):
     """Model for storing application context data structure."""
+
     data: dict[str, ContextValue] = {}
+
 
 class ConversationArtifacts(BaseModel):
     """Model for storing conversation artifacts."""
+
     data: dict[str, Optional[ExtendedParamValue]] = {}
+
 
 # Type aliases for common dictionary patterns
 ObjectCache: TypeAlias = dict[str, Optional[Any]]
@@ -45,9 +52,16 @@ ConversationEntry: TypeAlias = tuple[str, str, Optional[ConversationArtifacts]]
 ConversationHistory: TypeAlias = list[ConversationEntry]
 
 __all__ = [
-    'ParamValue', 'ExtendedParamValue', 
-    'CommandMetadata', 'CommandFunc', 'CommandClass', 'PropertyFunc',
-    'ContextDict', 'ConversationArtifacts',
-    'ObjectCache', 'AppContextCache',
-    'ConversationEntry', 'ConversationHistory'
-] 
+    "ParamValue",
+    "ExtendedParamValue",
+    "CommandMetadata",
+    "CommandFunc",
+    "CommandClass",
+    "PropertyFunc",
+    "ContextDict",
+    "ConversationArtifacts",
+    "ObjectCache",
+    "AppContextCache",
+    "ConversationEntry",
+    "ConversationHistory",
+]

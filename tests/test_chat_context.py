@@ -6,26 +6,23 @@ and interactions with the CHAT_CONTEXT global variable.
 
 # pylint: disable=unused-argument,redefined-outer-name
 
-from pathlib import Path
-from typing import Generator, Any, Type
-
 import os
 import sys
+from pathlib import Path
 from types import ModuleType
+from typing import Any, Generator, Type
 
 import pytest
 
 from talk2py import CHAT_CONTEXT, Action
-from talk2py.chat_context import ChatContext, AppContext
+from talk2py.chat_context import ChatContext
 from talk2py.command_executor import CommandExecutor
 from talk2py.command_registry import CommandRegistry
-from talk2py.types import (
-    ConversationEntry, ConversationArtifacts
-)
+from talk2py.types import ConversationArtifacts, ConversationEntry
 
 # import fixtures
 # from .conftest import (
-#     temp_todo_app, todolist_registry, todolist_executor, chat_context_reset,
+#     temp_todo_app, todolist_registry, todolist_executor, _chat_context_reset,
 #     TMP_PATH_EXAMPLES
 # )
 
@@ -39,14 +36,17 @@ def load_class_from_sysmodules(file_path: str, class_name: str) -> Type[Any]:
 
     # Retrieve the class from the module
     if not hasattr(module, class_name):
-        raise AttributeError(f"Module '{module_name}' does not define a class '{class_name}'")
+        raise AttributeError(
+            f"Module '{module_name}' does not define a class '{class_name}'"
+        )
 
     return getattr(module, class_name)
 
+
 def test_command_executor_with_context(
-    temp_todo_app: dict[str, Path], 
+    temp_todo_app: dict[str, Path],
     todolist_executor: CommandExecutor,  # pylint: disable=redefined-outer-name
-    chat_context_reset: Generator[
+    _chat_context_reset: Generator[
         None, None, None
     ],  # pylint: disable=redefined-outer-name,unused-argument
 ) -> None:
@@ -63,8 +63,8 @@ def test_command_executor_with_context(
     module_file = str(temp_todo_app["module_file"])
 
     # Import the module and get the TodoList class directly
-    TodoList: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
-    todo_list = TodoList()
+    todolist_class: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
+    todo_list = todolist_class()
 
     CHAT_CONTEXT.current_object = todo_list
 
@@ -76,10 +76,10 @@ def test_command_executor_with_context(
     )
     todo = todolist_executor.perform_action(add_action)
     assert todo is not None
-    
+
     # Access the Todo by ID rather than the object directly
-    todo_id = todo._id
-    
+    todo_id = todo.id
+
     # Set current todo to the todo's ID (not the object)
     set_current_action = Action(
         app_folderpath=app_path,
@@ -93,7 +93,7 @@ def test_command_executor_with_context(
     # Close todo (Todo context)
     # First set the CHAT_CONTEXT.current_object to the todo
     CHAT_CONTEXT.current_object = todo
-    
+
     close_action = Action(
         app_folderpath=app_path,
         command_key="todo_list.Todo.close",
@@ -114,14 +114,16 @@ def test_command_executor_with_context(
 def test_command_executor_context_switching(
     temp_todo_app: dict[str, Path],
     todolist_executor: CommandExecutor,  # pylint: disable=redefined-outer-name
-    chat_context_reset: Generator[ChatContext, None, None],  # pylint: disable=redefined-outer-name
+    _chat_context_reset: Generator[
+        ChatContext, None, None
+    ],  # pylint: disable=redefined-outer-name
 ) -> None:
     """Test switching between different contexts during command execution.
 
     Args:
         temp_todo_app: Fixture providing test module paths
         todolist_executor: Fixture providing configured CommandExecutor
-        chat_context_reset: Fixture providing clean ChatContext instance
+        _chat_context_reset: Fixture providing clean ChatContext instance
     """
     # Initialize todo list (global context)
     app_path = str(temp_todo_app["module_dir"])
@@ -129,8 +131,8 @@ def test_command_executor_context_switching(
     module_file = str(temp_todo_app["module_file"])
 
     # Import the module and get the TodoList class directly
-    TodoList: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
-    todo_list = TodoList()
+    todolist_class: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
+    todo_list = todolist_class()
 
     CHAT_CONTEXT.current_object = todo_list
 
@@ -153,11 +155,11 @@ def test_command_executor_context_switching(
     set_current_action = Action(
         app_folderpath=app_path,
         command_key="todo_list.TodoList.current_todo",
-        parameters={"value": todo1._id},
+        parameters={"value": todo1.id},
     )
     current_todo = todolist_executor.perform_action(set_current_action)
     assert current_todo == todo1  # Should return the todo object
-    
+
     # Manually set context to todo1 for Todo operations
     CHAT_CONTEXT.current_object = todo1
     assert CHAT_CONTEXT.current_object == todo1
@@ -175,11 +177,11 @@ def test_command_executor_context_switching(
     set_current_action = Action(
         app_folderpath=app_path,
         command_key="todo_list.TodoList.current_todo",
-        parameters={"value": todo2._id},
+        parameters={"value": todo2.id},
     )
     current_todo = todolist_executor.perform_action(set_current_action)
     assert current_todo == todo2
-    
+
     # Manually set context to todo2 for Todo operations
     CHAT_CONTEXT.current_object = todo2
     assert CHAT_CONTEXT.current_object == todo2
@@ -196,7 +198,7 @@ def test_command_executor_context_switching(
 def test_command_executor_invalid_context(
     temp_todo_app: dict[str, Path],
     todolist_executor: CommandExecutor,
-    chat_context_reset: Generator[None, None, None],
+    _chat_context_reset: Generator[None, None, None],
 ) -> None:
     """Test error handling when executing commands with invalid contexts."""
     app_path = str(temp_todo_app["module_dir"])
@@ -209,16 +211,19 @@ def test_command_executor_invalid_context(
         command_key="todo_list.Todo.close",
         parameters={},
     )
-    
+
     print(f"Before action CHAT_CONTEXT.current_object: {CHAT_CONTEXT.current_object}")
-    
+
     # Test first scenario - no current object should raise ValueError
-    with pytest.raises(ValueError, match="Command 'todo_list.Todo.close' is not available in the current context"):
+    with pytest.raises(
+        ValueError,
+        match="Command 'todo_list.Todo.close' is not available in the current context",
+    ):
         todolist_executor.perform_action(close_action)
 
     # Import the module and get the TodoList class directly
-    TodoList: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
-    todo_list = TodoList()
+    todolist_class: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
+    todo_list = todolist_class()
 
     # Test second scenario - wrong context type should raise TypeError
     CHAT_CONTEXT.current_object = todo_list
@@ -229,14 +234,16 @@ def test_command_executor_invalid_context(
 def test_command_executor_properties(
     temp_todo_app: dict[str, Path],
     todolist_executor: CommandExecutor,  # pylint: disable=redefined-outer-name
-    chat_context_reset: Generator[ChatContext, None, None],  # pylint: disable=redefined-outer-name
+    _chat_context_reset: Generator[
+        ChatContext, None, None
+    ],  # pylint: disable=redefined-outer-name
 ) -> None:
     """Test handling of property getter and setter commands.
 
     Args:
         temp_todo_app: Fixture providing test module paths
         todolist_executor: Fixture providing configured CommandExecutor
-        chat_context_reset: Fixture providing clean ChatContext instance
+        _chat_context_reset: Fixture providing clean ChatContext instance
     """
     # Initialize todo list (global context)
     app_path = str(temp_todo_app["module_dir"])
@@ -244,8 +251,8 @@ def test_command_executor_properties(
     module_file = str(temp_todo_app["module_file"])
 
     # Import the module and get the TodoList class directly
-    TodoList: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
-    todo_list = TodoList()
+    todolist_class: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
+    todo_list = todolist_class()
 
     CHAT_CONTEXT.current_object = todo_list
 
@@ -256,16 +263,16 @@ def test_command_executor_properties(
         parameters={"description": "Property test"},
     )
     todo = todolist_executor.perform_action(add_action)
-    
+
     # Set current todo to the new todo
     set_current_action = Action(
         app_folderpath=app_path,
         command_key="todo_list.TodoList.current_todo",
-        parameters={"value": todo._id},
+        parameters={"value": todo.id},
     )
     current_todo = todolist_executor.perform_action(set_current_action)
     assert current_todo == todo
-    
+
     # Manually set context to todo for Todo operations
     CHAT_CONTEXT.current_object = todo
     assert CHAT_CONTEXT.current_object == todo
@@ -295,7 +302,9 @@ def test_command_executor_properties(
 def test_object_based_property_get(
     temp_todo_app: dict[str, Path],
     todolist_registry: CommandRegistry,  # pylint: disable=redefined-outer-name
-    chat_context_reset: Generator[ChatContext, None, None],  # pylint: disable=redefined-outer-name
+    _chat_context_reset: Generator[
+        ChatContext, None, None
+    ],  # pylint: disable=redefined-outer-name
 ) -> None:
     """Test getting a property from an object in the current context.
 
@@ -305,16 +314,16 @@ def test_object_based_property_get(
     Args:
         temp_todo_app: Fixture providing test module paths
         todolist_registry: Fixture providing registry with todo commands
-        chat_context_reset: Fixture providing clean ChatContext instance
+        _chat_context_reset: Fixture providing clean ChatContext instance
     """
     # Initialize todo list (global context)
     app_path = str(temp_todo_app["module_dir"])
     CHAT_CONTEXT.register_app(app_path)
     module_file = str(temp_todo_app["module_file"])
-    
+
     # Import the module and get the TodoList class
-    TodoList: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
-    todo_list = TodoList()
+    todolist_class: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
+    todo_list = todolist_class()
 
     todo = todo_list.add_todo("Test todo")
 
@@ -334,7 +343,9 @@ def test_object_based_property_get(
 def test_object_based_property_set(
     temp_todo_app: dict[str, Path],
     todolist_registry: CommandRegistry,  # pylint: disable=redefined-outer-name
-    chat_context_reset: Generator[ChatContext, None, None],  # pylint: disable=redefined-outer-name
+    _chat_context_reset: Generator[
+        ChatContext, None, None
+    ],  # pylint: disable=redefined-outer-name
 ) -> None:
     """Test setting a property on an object in the current context.
 
@@ -344,16 +355,16 @@ def test_object_based_property_set(
     Args:
         temp_todo_app: Fixture providing test module paths
         todolist_registry: Fixture providing registry with todo commands
-        chat_context_reset: Fixture providing clean ChatContext instance
+        _chat_context_reset: Fixture providing clean ChatContext instance
     """
     # Initialize todo list (global context)
     app_path = str(temp_todo_app["module_dir"])
     CHAT_CONTEXT.register_app(app_path)
     module_file = str(temp_todo_app["module_file"])
-    
+
     # Import the module and get the TodoList class
-    TodoList: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
-    todo_list = TodoList()
+    todolist_class: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
+    todo_list = todolist_class()
 
     todo = todo_list.add_todo("Test todo")
 
@@ -376,7 +387,9 @@ def test_object_based_property_set(
 def test_method_binding_to_context(
     temp_todo_app: dict[str, Path],
     todolist_registry: CommandRegistry,  # pylint: disable=redefined-outer-name
-    chat_context_reset: Generator[ChatContext, None, None],  # pylint: disable=redefined-outer-name
+    _chat_context_reset: Generator[
+        ChatContext, None, None
+    ],  # pylint: disable=redefined-outer-name
 ) -> None:
     """Test method binding to the current context object.
 
@@ -387,16 +400,16 @@ def test_method_binding_to_context(
     Args:
         temp_todo_app: Fixture providing test module paths
         todolist_registry: Fixture providing registry with todo commands
-        chat_context_reset: Fixture providing clean ChatContext instance
+        _chat_context_reset: Fixture providing clean ChatContext instance
     """
     # Initialize todo list (global context)
     app_path = str(temp_todo_app["module_dir"])
     CHAT_CONTEXT.register_app(app_path)
     module_file = str(temp_todo_app["module_file"])
-    
+
     # Import the module and get the TodoList class
-    TodoList: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
-    todo_list = TodoList()
+    todolist_class: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
+    todo_list = todolist_class()
 
     _ = todo_list.add_todo("Test todo")
 
@@ -417,7 +430,9 @@ def test_method_binding_to_context(
 def test_method_binding_to_different_context(
     temp_todo_app: dict[str, Path],
     todolist_registry: CommandRegistry,  # pylint: disable=redefined-outer-name
-    chat_context_reset: Generator[ChatContext, None, None],  # pylint: disable=redefined-outer-name
+    _chat_context_reset: Generator[
+        ChatContext, None, None
+    ],  # pylint: disable=redefined-outer-name
 ) -> None:
     """Test method binding when switching between different context objects.
 
@@ -428,16 +443,16 @@ def test_method_binding_to_different_context(
     Args:
         temp_todo_app: Fixture providing test module paths
         todolist_registry: Fixture providing registry with todo commands
-        chat_context_reset: Fixture providing clean ChatContext instance
+        _chat_context_reset: Fixture providing clean ChatContext instance
     """
     # Initialize todo list (global context)
     app_path = str(temp_todo_app["module_dir"])
     CHAT_CONTEXT.register_app(app_path)
     module_file = str(temp_todo_app["module_file"])
-    
+
     # Import the module and get the TodoList class
-    TodoList: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
-    todo_list = TodoList()
+    todolist_class: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
+    todo_list = todolist_class()
 
     todo = todo_list.add_todo("Test todo")
 
@@ -457,7 +472,9 @@ def test_method_binding_to_different_context(
 def test_context_specific_method_binding(
     temp_todo_app: dict[str, Path],
     todolist_registry: CommandRegistry,  # pylint: disable=redefined-outer-name
-    chat_context_reset: Generator[ChatContext, None, None],  # pylint: disable=redefined-outer-name
+    _chat_context_reset: Generator[
+        ChatContext, None, None
+    ],  # pylint: disable=redefined-outer-name
 ) -> None:
     # sourcery skip: extract-duplicate-method
     """Test method binding when switching between different context objects multiple times.
@@ -470,16 +487,16 @@ def test_context_specific_method_binding(
     Args:
         temp_todo_app: Fixture providing test module paths
         todolist_registry: Fixture providing registry with todo commands
-        chat_context_reset: Fixture providing clean ChatContext instance
+        _chat_context_reset: Fixture providing clean ChatContext instance
     """
     # Initialize todo list (global context)
     app_path = str(temp_todo_app["module_dir"])
     CHAT_CONTEXT.register_app(app_path)
     module_file = str(temp_todo_app["module_file"])
-    
+
     # Import the module and get the TodoList class
-    TodoList: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
-    todo_list = TodoList()
+    todolist_class: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
+    todo_list = todolist_class()
 
     todo = todo_list.add_todo("Test todo")
 
@@ -506,7 +523,7 @@ def test_context_specific_method_binding(
     assert CHAT_CONTEXT.current_object == todo_list
 
 
-def test_add_conversation(chat_context_reset: None) -> None:
+def test_add_conversation(_chat_context_reset: None) -> None:
     """Test adding conversation entries."""
     # Add a simple conversation
     CHAT_CONTEXT.append_to_conversation_history("Hello", "Hi there")
@@ -523,7 +540,8 @@ def test_add_conversation(chat_context_reset: None) -> None:
     entry_with_artifacts: ConversationEntry = ("How are you?", "I'm good!", artifacts)
     assert history[1] == entry_with_artifacts
 
-def test_conversation_history_with_limit(chat_context_reset: None) -> None:
+
+def test_conversation_history_with_limit(_chat_context_reset: None) -> None:
     """Test retrieving limited conversation history."""
     # Add multiple conversations
     conversations: list[tuple[str, str]] = [
@@ -542,20 +560,18 @@ def test_conversation_history_with_limit(chat_context_reset: None) -> None:
     # Test getting last 2 items
     history = CHAT_CONTEXT.get_conversation_history(last_n=2)
     assert len(history) == 2
-    expected: list[ConversationEntry] = [
-        ("Q3", "R3", None),
-        ("Q4", "R4", None)
-    ]
+    expected: list[ConversationEntry] = [("Q3", "R3", None), ("Q4", "R4", None)]
     assert history == expected
 
-def test_clear_conversation_history(chat_context_reset: ChatContext) -> None:
+
+def test_clear_conversation_history(_chat_context_reset: ChatContext) -> None:
     """Test clearing conversation history.
-    
+
     Args:
-        chat_context_reset: Fixture providing clean ChatContext instance
+        _chat_context_reset: Fixture providing clean ChatContext instance
     """
     context = ChatContext()
-    
+
     # Add some conversations
     context.append_to_conversation_history("Q1", "R1")
     context.append_to_conversation_history("Q2", "R2")
@@ -567,8 +583,7 @@ def test_clear_conversation_history(chat_context_reset: ChatContext) -> None:
 
 
 def test_app_context_getter_setter(
-    temp_todo_app: dict[str, Path],
-    chat_context_reset: None
+    temp_todo_app: dict[str, Path], _chat_context_reset: None
 ) -> None:
     """Test the app_context getter and setter functionality."""
     app_path = str(temp_todo_app["module_dir"])
@@ -580,24 +595,25 @@ def test_app_context_getter_setter(
     # Set app_context to a test dictionary
     test_context = {"key1": "value1", "key2": 42}
     CHAT_CONTEXT.app_context = test_context
-    
+
     # Get the AppContext instance
-    app_ctx = CHAT_CONTEXT._app_contexts[app_path]
-    assert isinstance(app_ctx, AppContext)
-    assert app_ctx.context_data == test_context
-    assert CHAT_CONTEXT.app_context == test_context
+    app_ctx = CHAT_CONTEXT.app_context
+    assert isinstance(app_ctx, dict)
+    assert app_ctx == test_context
 
 
 def test_app_context_no_current_app(
-    chat_context_reset: Generator[ChatContext, None, None]  # pylint: disable=redefined-outer-name
+    _chat_context_reset: Generator[
+        ChatContext, None, None
+    ]  # pylint: disable=redefined-outer-name
 ) -> None:
     """Test app_context errors when no current app is set.
-    
+
     Args:
-        chat_context_reset: Fixture providing clean ChatContext instance
+        _chat_context_reset: Fixture providing clean ChatContext instance
     """
     context = ChatContext()
-    
+
     # Explicitly reset current_app_folderpath to None
     # pylint: disable=protected-access
     context._current_app_folderpath = None
@@ -612,15 +628,17 @@ def test_app_context_no_current_app(
 
 
 def test_app_context_multiple_apps(
-    chat_context_reset: Generator[ChatContext, None, None]  # pylint: disable=redefined-outer-name
+    _chat_context_reset: Generator[
+        ChatContext, None, None
+    ]  # pylint: disable=redefined-outer-name
 ) -> None:
     """Test app_context with multiple registered apps.
-    
+
     Args:
-        chat_context_reset: Fixture providing clean ChatContext instance
+        _chat_context_reset: Fixture providing clean ChatContext instance
     """
     context = ChatContext()
-    
+
     # Register two apps
     app_path1 = "./examples/todo_list"
     app_path2 = "./examples/calculator"

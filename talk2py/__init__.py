@@ -61,15 +61,15 @@ def get_env_var(
     default: Optional[ExtendedParamValue] = None,
 ) -> ExtendedParamValue:
     """Get the environment variable.
-    
+
     Args:
         var_name: Name of the environment variable to get
         var_type: Type to convert the value to (str, int, float, or bool)
         default: Optional default value if variable is not found
-        
+
     Returns:
         The environment variable value converted to the specified type
-        
+
     Raises:
         ValueError: If the variable doesn't exist and no default is provided,
                   or if the value cannot be converted to the specified type
