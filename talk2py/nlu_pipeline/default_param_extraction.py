@@ -4,7 +4,7 @@ This module provides a basic implementation of the ParameterExtractionInterface
 for extracting and validating command parameters in talk2py.
 """
 
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from pydantic import BaseModel
 
@@ -29,12 +29,13 @@ class DefaultParameterExtraction(ParameterExtractionInterface):
         return ""
 
     def validate_parameters(
-        self, cmd_parameters: BaseModel
+        self, intent: str, parameters: Dict[str, Any]
     ) -> tuple[bool, Optional[str]]:
         """Validate the command parameters.
 
         Args:
-            cmd_parameters: The parameters to validate as a Pydantic model.
+            intent: The classified intent string.
+            parameters: The currently identified parameters.
 
         Returns:
             A tuple containing:
@@ -45,3 +46,9 @@ class DefaultParameterExtraction(ParameterExtractionInterface):
             NotImplementedError: This is a placeholder implementation.
         """
         return (True, "")
+
+    def identify_parameters(
+        self, user_input: str, intent: str
+    ) -> Dict[str, Any]:
+        """Default implementation: returns empty parameters."""
+        return {}

@@ -6,7 +6,7 @@ This module defines abstract interfaces for NLU engine components:
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Dict, Any, Tuple, List
 
 from pydantic import BaseModel
 
@@ -28,6 +28,16 @@ class ParameterExtractionInterface(ABC):
         ideally provide guidance on correcting the errors
         """
 
+    @abstractmethod
+    def identify_parameters(
+        self, user_input: str, intent: str
+    ) -> Dict[str, Any]:
+        """Extract parameters from user input for the given intent.
+
+        Default implementation should return an empty dict.
+        """
+        pass  # Implementations should override this
+
 
 # pylint: disable=too-few-public-methods
 class ResponseGenerationInterface(ABC):
@@ -40,6 +50,36 @@ class ResponseGenerationInterface(ABC):
         execution_results: dict[str, str],
     ) -> str:
         """generate a human readable response based on command execution results"""
+
+    @abstractmethod
+    def categorize_user_message(
+        self, user_message: str
+    ) -> str:
+        """Categorize user message as 'query', 'feedback', or 'abort'.
+
+        Default implementation should return 'query'.
+        """
+        pass # Implementations should override this
+
+    @abstractmethod
+    def classify_intent(
+        self, user_input: str, excluded_intents: Optional[List[str]] = None
+    ) -> Tuple[str, float]:
+        """Classify user intent, returning the intent name and confidence score.
+
+        Default implementation should return ('unknown', 0.0).
+        """
+        pass # Implementations should override this
+
+    @abstractmethod
+    def clarify_intent(
+        self, user_input: str, possible_intents: List[Tuple[str, float]]
+    ) -> Optional[str]:
+        """Clarify ambiguous intents, returning the selected intent or None if clarification needed.
+
+        Default implementation should return the highest confidence intent or None.
+        """
+        pass # Implementations should override this
 
 
 # class CommandRouterInterface(ABC):

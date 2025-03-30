@@ -29,7 +29,8 @@ dev = [
     "pylint>=3.3.1",
     "mypy>=1.13.0",
     "bandit>=1.7.10",
-    "pytest>=8.3.3"
+    "pytest>=8.3.3",
+    "pytest-mock>=3.14.0"
 ]
 
 [tool.uv.dependency-groups.docs]

@@ -6,9 +6,9 @@ used throughout the talk2py framework to ensure type consistency and reduce comp
 of nested type annotations.
 """
 
-from typing import TYPE_CHECKING, Any, Callable, Optional, Type, TypeAlias, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, Type, TypeAlias, Union, List, Dict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from talk2py.code_parsing_execution.command_registry import CommandRegistry
@@ -37,10 +37,21 @@ class ContextDict(BaseModel):
     data: dict[str, ContextValue] = {}
 
 
+# Define NLUArtifacts first
+class NLUArtifacts(BaseModel):
+    """Model for storing NLU pipeline artifacts."""
+    state: Optional[str] = None
+    intent: Optional[str] = None
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    excluded_intents: List[str] = Field(default_factory=list)
+    confidence_score: float = 0.0
+    is_reset: bool = False
+
 class ConversationArtifacts(BaseModel):
     """Model for storing conversation artifacts."""
 
-    data: dict[str, Optional[ExtendedParamValue]] = {}
+    data: Dict[str, Optional[ExtendedParamValue]] = Field(default_factory=dict)
+    nlu: Optional[NLUArtifacts] = None
 
 
 # Type aliases for common dictionary patterns
