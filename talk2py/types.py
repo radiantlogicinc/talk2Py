@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Type, TypeAlias, Unio
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
-    from talk2py.command_registry import CommandRegistry
+    from talk2py.code_parsing_execution.command_registry import CommandRegistry
 
 # Basic value types
 ParamValue = Union[str, bool, int, float]

@@ -11,8 +11,8 @@ from typing import Any, Type
 import pytest
 
 from talk2py import CHAT_CONTEXT, Action
-from talk2py.command_executor import CommandExecutor
-from talk2py.command_registry import CommandRegistry
+from talk2py.code_parsing_execution.command_executor import CommandExecutor
+from talk2py.code_parsing_execution.command_registry import CommandRegistry
 
 
 # pylint: disable=redefined-outer-name

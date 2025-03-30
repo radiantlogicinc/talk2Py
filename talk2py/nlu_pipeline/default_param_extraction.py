@@ -8,7 +8,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from talk2py.nlu_engine_interfaces import ParameterExtractionInterface
+from talk2py.nlu_pipeline.nlu_engine_interfaces import ParameterExtractionInterface
 
 
 class DefaultParameterExtraction(ParameterExtractionInterface):

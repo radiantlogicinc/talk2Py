@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Optional, Set
 
 from talk2py import get_registry
-from talk2py.nlu_engine_interfaces import (
+from talk2py.nlu_pipeline.nlu_engine_interfaces import (
     ParameterExtractionInterface,
     ResponseGenerationInterface,
 )

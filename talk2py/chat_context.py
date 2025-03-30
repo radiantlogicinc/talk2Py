@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, TypeAlias
 
 from speedict import Rdict  # pylint: disable=no-name-in-module
 
-from talk2py.command_registry import CommandRegistry
+from talk2py.code_parsing_execution.command_registry import CommandRegistry
 from talk2py.types import (
     ContextDict,
     ContextValue,

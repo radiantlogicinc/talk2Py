@@ -9,9 +9,9 @@ from typing import Generator, Union
 import pytest
 
 import talk2py
-from talk2py.command_executor import CommandExecutor
-from talk2py.command_registry import CommandRegistry
-from talk2py.create.__main__ import create_command_metadata, save_command_metadata
+from talk2py.code_parsing_execution.command_executor import CommandExecutor
+from talk2py.code_parsing_execution.command_registry import CommandRegistry
+from talk2py.tools.create.__main__ import create_command_metadata, save_command_metadata
 
 TMP_PATH_EXAMPLES: str = "./tests/tmp"
 

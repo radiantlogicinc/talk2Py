@@ -8,7 +8,7 @@ import os
 from typing import Any, Optional
 
 from talk2py import command
-from talk2py.command_parser import (
+from talk2py.code_parsing_execution.command_parser import (
     extract_function_metadata,
     extract_type_annotation,
     is_command_decorated,

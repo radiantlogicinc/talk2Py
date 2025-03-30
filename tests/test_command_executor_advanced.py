@@ -11,7 +11,7 @@ import sys
 import typing
 
 from talk2py import CHAT_CONTEXT, Action
-from talk2py.command_executor import CommandExecutor
+from talk2py.code_parsing_execution.command_executor import CommandExecutor
 
 
 def test_command_executor_with_context(

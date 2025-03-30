@@ -16,8 +16,8 @@ import pytest
 
 from talk2py import CHAT_CONTEXT, Action
 from talk2py.chat_context import ChatContext
-from talk2py.command_executor import CommandExecutor
-from talk2py.command_registry import CommandRegistry
+from talk2py.code_parsing_execution.command_executor import CommandExecutor
+from talk2py.code_parsing_execution.command_registry import CommandRegistry
 from talk2py.types import ConversationArtifacts, ConversationEntry
 
 # import fixtures

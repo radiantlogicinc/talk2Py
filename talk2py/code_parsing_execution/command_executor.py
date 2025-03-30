@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 import talk2py
 from talk2py import CHAT_CONTEXT
-from talk2py.command_registry import CommandRegistry
+from talk2py.code_parsing_execution.command_registry import CommandRegistry
 
 # from fastworkflow.command_interfaces import CommandExecutorInterface
 # from fastworkflow.command_routing_definition import ModuleType as CommandModuleType

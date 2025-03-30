@@ -5,7 +5,7 @@ from unittest import mock
 
 import pytest
 
-from talk2py.default_response_generation import DefaultResponseGeneration
+from talk2py.nlu_pipeline.default_response_generation import DefaultResponseGeneration
 
 
 @pytest.fixture

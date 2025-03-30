@@ -9,7 +9,7 @@ from io import StringIO
 from pathlib import Path
 from unittest import TestCase, mock
 
-from talk2py.manage_nlu_overrides.__main__ import main
+from talk2py.tools.manage_nlu_overrides.__main__ import main
 
 
 # pylint: disable=too-many-instance-attributes
@@ -91,7 +91,7 @@ class TestNLUOverridesManagerCLI(TestCase):
 
         # Run CLI
         with mock.patch(
-            "talk2py.manage_nlu_overrides.__main__.get_registry",
+            "talk2py.tools.manage_nlu_overrides.__main__.get_registry",
             return_value=self.mock_registry,
         ):
             sys.argv = ["manage_nlu_overrides", str(self.app_folder)]
@@ -117,7 +117,7 @@ class TestNLUOverridesManagerCLI(TestCase):
 
         # Run CLI
         with mock.patch(
-            "talk2py.manage_nlu_overrides.__main__.get_registry",
+            "talk2py.tools.manage_nlu_overrides.__main__.get_registry",
             return_value=self.mock_registry,
         ):
             sys.argv = ["manage_nlu_overrides", str(self.app_folder)]
@@ -145,7 +145,7 @@ class TestNLUOverridesManagerCLI(TestCase):
 
         # Run CLI
         with mock.patch(
-            "talk2py.manage_nlu_overrides.__main__.get_registry",
+            "talk2py.tools.manage_nlu_overrides.__main__.get_registry",
             return_value=self.mock_registry,
         ):
             sys.argv = ["manage_nlu_overrides", str(self.app_folder)]
@@ -178,7 +178,7 @@ class TestNLUOverridesManagerCLI(TestCase):
 
         # Run CLI
         with mock.patch(
-            "talk2py.manage_nlu_overrides.__main__.get_registry",
+            "talk2py.tools.manage_nlu_overrides.__main__.get_registry",
             return_value=self.mock_registry,
         ):
             sys.argv = ["manage_nlu_overrides", str(self.app_folder)]

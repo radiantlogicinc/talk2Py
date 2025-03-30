@@ -47,13 +47,13 @@ build-backend = "setuptools.build_meta"
 packages = ["talk2py"]
 
 [tool.pylint]
-max-line-length = 120
+max-line-length = 135
 
 [tool.pylint."tests.*"]
 disable = ["R0801", "W0621"]
 
 [tool.ruff]
-line-length = 120
+line-length = 135
 target-version = "py311"
 
 [tool.bandit]

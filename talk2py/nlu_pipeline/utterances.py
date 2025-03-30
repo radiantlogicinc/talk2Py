@@ -7,7 +7,7 @@ that generates function signatures and docstrings for commands.
 import os
 
 from talk2py import get_registry
-from talk2py.command_registry import CommandRegistry
+from talk2py.code_parsing_execution.command_registry import CommandRegistry
 
 
 class DefaultUtterancesImpl:  # pylint: disable=too-few-public-methods

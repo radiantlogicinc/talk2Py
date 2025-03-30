@@ -7,7 +7,7 @@ import json
 import os
 import sys
 
-from talk2py.command_parser import scan_directory_for_commands
+from talk2py.code_parsing_execution.command_parser import scan_directory_for_commands
 
 
 def create_command_metadata(app_folder_path: str) -> dict:

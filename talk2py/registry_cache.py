@@ -8,7 +8,7 @@ of CommandRegistry instances to avoid redundant loading of command metadata.
 import logging
 import os
 
-from talk2py.command_registry import CommandRegistry
+from talk2py.code_parsing_execution.command_registry import CommandRegistry
 
 
 class RegistryCache:

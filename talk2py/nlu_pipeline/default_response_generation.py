@@ -7,7 +7,7 @@ for generating human-readable responses based on command execution in talk2py.
 import dspy  # type: ignore
 
 import talk2py
-from talk2py.nlu_engine_interfaces import ResponseGenerationInterface
+from talk2py.nlu_pipeline.nlu_engine_interfaces import ResponseGenerationInterface
 
 
 # pylint: disable=too-few-public-methods

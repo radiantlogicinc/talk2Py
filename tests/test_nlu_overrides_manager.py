@@ -6,11 +6,11 @@ import tempfile
 from pathlib import Path
 from unittest import TestCase, mock
 
-from talk2py.manage_nlu_overrides.__main__ import NLUOverridesManager
-from talk2py.nlu_engine_interfaces import (
+from talk2py.nlu_pipeline.nlu_engine_interfaces import (
     ParameterExtractionInterface,
     ResponseGenerationInterface,
 )
+from talk2py.tools.manage_nlu_overrides.__main__ import NLUOverridesManager
 
 
 # sourcery skip: no-conditionals-in-tests
@@ -76,7 +76,7 @@ class TestNLUOverridesManager(TestCase):
 
         # Create manager with mocked registry
         with mock.patch(
-            "talk2py.manage_nlu_overrides.__main__.get_registry",
+            "talk2py.tools.manage_nlu_overrides.__main__.get_registry",
             return_value=self.mock_registry,
         ):
             self.manager = NLUOverridesManager(str(self.app_folder))
@@ -96,7 +96,7 @@ class TestNLUOverridesManager(TestCase):
 
         # Create new manager
         with mock.patch(
-            "talk2py.manage_nlu_overrides.__main__.get_registry",
+            "talk2py.tools.manage_nlu_overrides.__main__.get_registry",
             return_value=self.mock_registry,
         ):
             manager = NLUOverridesManager(str(self.app_folder))
@@ -150,7 +150,7 @@ class TestNLUOverridesManager(TestCase):
 
         # Mock reading actual default implementation files
         default_param_extraction_content = (
-            """from talk2py.nlu_engine_interfaces """
+            """from talk2py.nlu_pipeline.nlu_engine_interfaces """
             """import ParameterExtractionInterface
 
 class DefaultParameterExtraction(ParameterExtractionInterface):
@@ -162,7 +162,7 @@ class DefaultParameterExtraction(ParameterExtractionInterface):
 """
         )
         default_response_generation_content = (
-            """from talk2py.nlu_engine_interfaces """
+            """from talk2py.nlu_pipeline.nlu_engine_interfaces """
             """import ResponseGenerationInterface
 
 class DefaultResponseGeneration(ResponseGenerationInterface):
@@ -299,7 +299,7 @@ class DefaultResponseGeneration(ResponseGenerationInterface):
         """Test validating override implementations."""
         # Create a valid implementation
         valid_impl = """
-from talk2py.nlu_engine_interfaces import ParameterExtractionInterface
+from talk2py.nlu_pipeline.nlu_engine_interfaces import ParameterExtractionInterface
 
 class DefaultParameterExtraction(ParameterExtractionInterface):
     def get_supplementary_prompt_instructions(self, command_key: str):
@@ -344,7 +344,7 @@ class WrongImpl:
 
         # Create a valid implementation with the correct class name
         valid_impl = """
-from talk2py.nlu_engine_interfaces import ParameterExtractionInterface
+from talk2py.nlu_pipeline.nlu_engine_interfaces import ParameterExtractionInterface
 
 class DefaultParameterExtraction(ParameterExtractionInterface):
     def get_supplementary_prompt_instructions(self, command_key: str):
@@ -493,7 +493,7 @@ class WrongClass:
         override_dir.mkdir(parents=True, exist_ok=True)
         (override_dir / "__init__.py").touch()
 
-        response_gen_content = """from talk2py.nlu_engine_interfaces import
+        response_gen_content = """from talk2py.nlu_pipeline.nlu_engine_interfaces import
 ResponseGenerationInterface
 
 class DefaultResponseGeneration(ResponseGenerationInterface):
@@ -531,8 +531,7 @@ class DefaultResponseGeneration(ResponseGenerationInterface):
 
                 # Now test the scan functionality to ensure it preserves metadata
                 # Add the param_extraction.py file
-                param_extraction_content = """from talk2py.nlu_engine_interfaces import ParameterExtractionInterface
-
+                param_extraction_content = """from talk2py.nlu_pipeline.nlu_engine_interfaces import ParameterExtractionInterface
 class DefaultParameterExtraction(ParameterExtractionInterface):
     def get_supplementary_prompt_instructions(self, command_key: str):
         return ""
@@ -579,7 +578,7 @@ class DefaultParameterExtraction(ParameterExtractionInterface):
         override_dir.mkdir(parents=True, exist_ok=True)
 
         # Mock the default implementation files with the correct class names
-        default_param_extraction_content = """from talk2py.nlu_engine_interfaces import ParameterExtractionInterface
+        default_param_extraction_content = """from talk2py.nlu_pipeline.nlu_engine_interfaces import ParameterExtractionInterface
 
 class DefaultParameterExtraction(ParameterExtractionInterface):
     def get_supplementary_prompt_instructions(self, command_key: str):
@@ -589,7 +588,7 @@ class DefaultParameterExtraction(ParameterExtractionInterface):
         return (True, "")
 """
 
-        default_response_generation_content = """from talk2py.nlu_engine_interfaces import ResponseGenerationInterface
+        default_response_generation_content = """from talk2py.nlu_pipeline.nlu_engine_interfaces import ResponseGenerationInterface
 
 class DefaultResponseGeneration(ResponseGenerationInterface):
     def generate_response(self, command: str, execution_results: dict[str, str]):
@@ -695,7 +694,7 @@ class DefaultResponseGeneration(ResponseGenerationInterface):
         """Test validating implementations with the correct class names."""
         # Create implementations with the correct class names
         param_extraction_impl = """
-from talk2py.nlu_engine_interfaces import ParameterExtractionInterface
+from talk2py.nlu_pipeline.nlu_engine_interfaces import ParameterExtractionInterface
 
 class DefaultParameterExtraction(ParameterExtractionInterface):
     def get_supplementary_prompt_instructions(self, command_key: str):
@@ -705,7 +704,7 @@ class DefaultParameterExtraction(ParameterExtractionInterface):
         return (True, "")
 """
         response_generation_impl = """
-from talk2py.nlu_engine_interfaces import ResponseGenerationInterface
+from talk2py.nlu_pipeline.nlu_engine_interfaces import ResponseGenerationInterface
 
 class DefaultResponseGeneration(ResponseGenerationInterface):
     def generate_response(self, command: str, execution_results: dict[str, str]):

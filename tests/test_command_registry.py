@@ -12,7 +12,7 @@ from typing import Any, Type
 
 import pytest
 
-from talk2py.command_registry import CommandRegistry
+from talk2py.code_parsing_execution.command_registry import CommandRegistry
 
 
 def create_test_files(tmp_path: Path) -> Path:

@@ -13,7 +13,11 @@ from unittest import mock
 
 import pytest
 
-from talk2py.create.__main__ import create_command_metadata, main, save_command_metadata
+from talk2py.tools.create.__main__ import (
+    create_command_metadata,
+    main,
+    save_command_metadata,
+)
 
 
 # pylint: disable=attribute-defined-outside-init
@@ -46,7 +50,7 @@ class TestCreateCommandRegistry:
         """
         # Mock scan_directory_for_commands to return a known value
         with mock.patch(
-            "talk2py.create.__main__.scan_directory_for_commands"
+            "talk2py.tools.create.__main__.scan_directory_for_commands"
         ) as mock_scan:
             mock_scan.return_value = {"command1": {"description": "Test command"}}
 
@@ -66,7 +70,7 @@ class TestCreateCommandRegistry:
         """
         # Mock scan_directory_for_commands to return an empty dict
         with mock.patch(
-            "talk2py.create.__main__.scan_directory_for_commands"
+            "talk2py.tools.create.__main__.scan_directory_for_commands"
         ) as mock_scan:
             mock_scan.return_value = {}
 
@@ -197,7 +201,7 @@ class TestMain:
         }
 
         with mock.patch(
-            "talk2py.create.__main__.create_command_metadata"
+            "talk2py.tools.create.__main__.create_command_metadata"
         ) as mock_create:
             mock_create.return_value = test_registry
 
