@@ -3,10 +3,17 @@ import json
 import importlib
 from typing import Dict, Any, Optional, Tuple, List, Type
 from datetime import datetime
+import logging # Assuming logging is used
 
 from talk2py import CHAT_CONTEXT
 from talk2py.types import ConversationArtifacts, NLUArtifacts
-from talk2py.nlu_pipeline.models import NLUPipelineState, NLUPipelineContext
+from talk2py.nlu_pipeline.models import NLUPipelineState, NLUPipelineContext, InteractionState
+from talk2py.nlu_pipeline.interaction_models import ClarificationData, ValidationData, FeedbackData # Import specific data types
+from talk2py.nlu_pipeline.interaction_handlers import (
+    InteractionHandler, InteractionResult,
+    ClarificationHandler, ValidationHandler, FeedbackHandler # Import concrete handlers
+)
+from talk2py.nlu_pipeline.utils import check_for_meta_commands, MetaCommandType
 from talk2py.nlu_pipeline.nlu_engine_interfaces import (
     ParameterExtractionInterface,
     ResponseGenerationInterface
@@ -25,6 +32,14 @@ class NLUPipelineManager:
         self._param_extraction_impl: Optional[ParameterExtractionInterface] = None
         self._response_generation_impl: Optional[ResponseGenerationInterface] = None
         self._current_command_key_for_impl: Optional[str] = None
+
+        # Instantiate and register interaction handlers
+        self._interaction_handlers: Dict[InteractionState, InteractionHandler] = {
+            InteractionState.CLARIFYING_INTENT: ClarificationHandler(),
+            InteractionState.VALIDATING_PARAMETER: ValidationHandler(),
+            InteractionState.AWAITING_FEEDBACK: FeedbackHandler(),
+            # Add mappings for other handlers
+        }
 
     def _load_implementation(self, command_key: str, interface_type: str) -> Any:
         """Loads the appropriate implementation (default or override)."""
@@ -129,493 +144,527 @@ class NLUPipelineManager:
         """Check if an object has a specific method."""
         return hasattr(obj, method_name) and callable(getattr(obj, method_name))
 
-    def process_message(self, user_message: str) -> str:
-        """Process a user message through the NLU pipeline.
-        
-        This method now processes one state transition per call based on the 
-        current context state and user message.
-        """
-        context = self._get_nlu_context()
-        start_state = context.current_state
-        response = "An error occurred processing your request." # Default error response
-        transition_occurred = False
-
-        logger.info(f"NLU Pipeline START: Processing '{user_message}' in state {start_state.value}")
-
-        try:
-            # --- Get current implementations --- 
-            param_impl = self._get_param_extraction(context.current_intent)
-            resp_impl = self._get_response_generation(context.current_intent)
-
-            # --- Universal Checks (Abort/Feedback) --- 
-            # Always categorize first to catch universal commands like abort
-            category = "query" # Default
-            if self._has_method(resp_impl, "categorize_user_message"):
-                category = resp_impl.categorize_user_message(user_message)
-                logger.debug(f"Message categorized as: {category}")
-            else:
-                logger.warning("Response generation implementation missing 'categorize_user_message'. Cannot detect abort/feedback.")
-            
-            # Handle Abort universally
-            if category == "abort":
-                response = "Okay, cancelling the current operation."
-                self._reset_pipeline(context)
-                self._save_artifacts_and_log_transition(context, start_state, user_message, response)
-                return response
-
-            # --- State-Specific Logic --- 
-            # State: RESPONSE_TEXT_GENERATION (Handling Query or Feedback)
-            if start_state == NLUPipelineState.RESPONSE_TEXT_GENERATION:
-                # --- Reset context from previous turn BEFORE processing new input ---                
-                # Check if this is the start of a new interaction (not refinement feedback)
-                # We need to be careful not to clear intent if we are handling intent feedback
-                if category != "feedback": # If it's a new query or abort
-                    logger.debug("Resetting NLU context fields for new query in RESPONSE_TEXT_GENERATION state.")
-                    context.current_intent = None
-                    context.current_parameters = {}
-                    context.parameter_validation_errors = []
-                    context.confidence_score = 0.0
-                    context.excluded_intents = [] 
-                    # Keep last_... fields for potential feedback on the *previous* response
-                # --- End context reset --- 
-                    
-                # Abort is handled above
-                if category == "query":
-                    self._transition_state(context, NLUPipelineState.INTENT_CLASSIFICATION)
-                    response = self._handle_intent_classification(context, user_message, resp_impl)
-                elif category == "feedback":
-                    response = self._handle_response_generation_feedback(context, user_message, resp_impl)
-                else: # Handle unknown category if needed (though abort handled)
-                     logger.warning(f"Unknown or unhandled message category in RESPONSE_TEXT_GENERATION: {category}")
-                     response = "I'm not sure how to handle that type of message."
-                     self._transition_state(context, NLUPipelineState.RESPONSE_TEXT_GENERATION)
-
-            # State: INTENT_CLASSIFICATION
-            # If we start in this state, it means the previous turn ended here (e.g., after reset feedback)
-            # We should proceed to classify the current user_message.
-            elif start_state == NLUPipelineState.INTENT_CLASSIFICATION:
-                logger.debug(f"Processing message received in state: {start_state.value}")
-                response = self._handle_intent_classification(context, user_message, resp_impl)
-
-            # State: INTENT_CLARIFICATION (Waiting for user clarification)
-            elif start_state == NLUPipelineState.INTENT_CLARIFICATION:
-                 # NOTE: If the user says 'abort' here, it was already caught above
-                response = self._handle_intent_clarification(context, user_message, resp_impl)
-
-            # State: PARAMETER_IDENTIFICATION (Entered after intent confirmed)
-            elif start_state == NLUPipelineState.PARAMETER_IDENTIFICATION:
-                 # NOTE: Abort already caught
-                 # This state handler now performs the *initial* identification and validation attempt
-                 response = self._handle_initial_param_id_and_validate(context, user_message, param_impl)
-
-            # State: PARAMETER_VALIDATION (Waiting for more params)
-            elif start_state == NLUPipelineState.PARAMETER_VALIDATION:
-                # NOTE: Abort already caught
-                # This state handler is for subsequent attempts after initial validation failed
-                response = self._handle_subsequent_param_validation(context, user_message, param_impl)
-
-            # State: CODE_EXECUTION (Entered after params are valid)
-            elif start_state == NLUPipelineState.CODE_EXECUTION:
-                # NOTE: Abort already caught (though unlikely user input occurs here)
-                response = self._handle_code_execution(context, user_message, resp_impl)
-            
-            else:
-                logger.error(f"Reached process_message with unknown state: {start_state.value}")
-                self._reset_pipeline(context)
-                response = "An internal error occurred. Resetting state."
-
-        except Exception as e:
-            logger.exception(f"Unhandled error processing NLU state {start_state.value}: {e}")
-            response = "I encountered an unexpected error. Please try again."
-            self._reset_pipeline(context)
-
-        # --- Save Context and Artifacts --- 
-        self._save_artifacts_and_log_transition(context, start_state, user_message, response)
-
-        logger.info(f"NLU Pipeline END: State={context.current_state.value}, Response='{response[:50]}...'")
-        return response
-        
-    # --- Helper methods for each state's logic --- 
-    
-    def _handle_response_generation_feedback(self, context: NLUPipelineContext, user_message: str, resp_impl: ResponseGenerationInterface) -> str:
-        """Handles feedback received in the RESPONSE_TEXT_GENERATION state."""
-        is_intent_feedback = "meant" in user_message.lower() or "wrong intent" in user_message.lower()
-        
-        if is_intent_feedback and context.last_user_message_for_response:
-            logger.info("Feedback identified as intent misinterpretation.")
-            if context.current_intent: # Use the intent that generated the last response
-                    context.excluded_intents.append(context.current_intent)
-                    logger.debug(f"Excluding intent: {context.current_intent}")
-            # Reset fields and transition to re-classify the *new* message
-            context.current_intent = None
-            context.current_parameters = {}
-            context.parameter_validation_errors = []
-            context.confidence_score = 0.0
-            context.last_user_message_for_response = None
-            context.last_execution_results_for_response = None
-            self._transition_state(context, NLUPipelineState.INTENT_CLASSIFICATION)
-            # Re-run classification immediately with the feedback message
-            return self._handle_intent_classification(context, user_message, resp_impl)
-        elif context.classroom_mode:
-            logger.info("Feedback identified as response refinement in classroom mode.")
-            if self._has_method(resp_impl, "generate_response") and context.last_user_message_for_response:
-                refined_command_desc = f"Original command: {context.last_user_message_for_response}\nFeedback: {user_message}"
-                try:
-                    response = resp_impl.generate_response(
-                        refined_command_desc, 
-                        context.last_execution_results_for_response or {}
-                    )
-                    logger.info(f"Generated refined response: {response}")
-                    # Update last response context
-                    context.last_user_message_for_response = refined_command_desc
-                    # Stay in RESPONSE_TEXT_GENERATION
-                    self._transition_state(context, NLUPipelineState.RESPONSE_TEXT_GENERATION)
-                    return response
-                except Exception as gen_e:
-                    logger.exception(f"Error generating refined response: {gen_e}")
-                    self._transition_state(context, NLUPipelineState.RESPONSE_TEXT_GENERATION)
-                    return "I understand the feedback, but couldn't refine the response."
-            else:
-                self._transition_state(context, NLUPipelineState.RESPONSE_TEXT_GENERATION)
-                return "Thank you for the feedback. (Refinement not available)"
-        else: # Non-classroom mode, non-intent-specific feedback
-            logger.info("Generic feedback received, resetting pipeline.")
-            self._reset_pipeline(context)
-            # Transition to INTENT_CLASSIFICATION to prompt user again
-            self._transition_state(context, NLUPipelineState.INTENT_CLASSIFICATION)
-            return "My apologies. Could you please rephrase your request?" # Default feedback response
-            
-    def _command_requires_parameters(self, command_key: str) -> bool:
-        """Check command registry metadata if a command requires parameters."""
-        if not command_key:
-            return False
-        try:
-            registry = CHAT_CONTEXT.get_registry(CHAT_CONTEXT.current_app_folderpath)
-            metadata = registry.command_metadata.get("map_commandkey_2_metadata", {}).get(command_key, {})
-            parameters = metadata.get("parameters", [])
-            # Consider parameters excluding 'self' or 'cls' if they exist
-            required_params = [p for p in parameters if p.get("name") not in ["self", "cls"]]
-            return len(required_params) > 0
-        except Exception as e:
-            logger.error(f"Failed to check parameter requirement for {command_key}: {e}")
-            return True # Assume parameters might be needed if check fails
-            
-    def _handle_intent_classification(self, context: NLUPipelineContext, user_message: str, resp_impl: ResponseGenerationInterface) -> str:
-        """Handles logic for the INTENT_CLASSIFICATION state."""
-        logger.debug("Handling INTENT_CLASSIFICATION")
-        # Use the currently loaded response_impl for classification
-        if self._has_method(resp_impl, "classify_intent"):
-                # Ensure excluded_intents is passed correctly (as positional)
-                intent, confidence = resp_impl.classify_intent(
-                    user_message, context.excluded_intents
-                )
-        else:
-                logger.warning("Response generation implementation missing 'classify_intent'. Defaulting to unknown.")
-                intent, confidence = "unknown", 0.0
-
-        context.current_intent = intent
-        context.confidence_score = confidence
-        logger.info(f"Intent classified: {intent} (Confidence: {confidence:.2f})")
-
-        threshold_high = 0.8 
-        threshold_medium = 0.5
-
-        if intent == "unknown" or confidence < threshold_medium:
-            self._transition_state(context, NLUPipelineState.RESPONSE_TEXT_GENERATION)
-            context.current_intent = None # Clear uncertain intent
-            context.excluded_intents = [] # Reset exclusions
-            return "Sorry, I couldn't understand that. Could you please rephrase?"
-        elif confidence < threshold_high:
-            # Transition to clarification and wait for next message
-            self._transition_state(context, NLUPipelineState.INTENT_CLARIFICATION)
-            return f"I think you mean '{intent}', is that correct? Or maybe something else?"
-        else: # High confidence
-            context.parameter_validation_errors = []
-            context.excluded_intents = [] # Clear exclusions
-            # Load specific implementations *now* for the confirmed intent
-            param_impl = self._get_param_extraction(context.current_intent)
-            resp_impl = self._get_response_generation(context.current_intent)
-
-            # Check if parameters are needed
-            if self._command_requires_parameters(context.current_intent):
-                self._transition_state(context, NLUPipelineState.PARAMETER_IDENTIFICATION)
-                # Attempt identification immediately
-                return self._handle_initial_param_id_and_validate(context, user_message, param_impl)
-            else:
-                # No parameters needed, attempt execution or go straight to response
-                logger.info(f"Intent {context.current_intent} requires no parameters. Skipping identification/validation.")
-                # TODO: Determine if code execution is needed
-                needs_code_execution = False # Placeholder
-                if needs_code_execution:
-                    self._transition_state(context, NLUPipelineState.CODE_EXECUTION)
-                    return self._handle_code_execution(context, user_message, resp_impl)
-                else:
-                    self._transition_state(context, NLUPipelineState.RESPONSE_TEXT_GENERATION)
-                    return self._handle_final_response_generation(context, user_message, resp_impl)
-            
-    def _handle_intent_clarification(self, context: NLUPipelineContext, user_message: str, resp_impl: ResponseGenerationInterface) -> str:
-        """Handles logic for the INTENT_CLARIFICATION state."""
-        logger.debug("Handling INTENT_CLARIFICATION")
-        potential_intents = [(context.current_intent, context.confidence_score)] if context.current_intent else []
-        
-        if self._has_method(resp_impl, "clarify_intent"):
-            clarified_intent = resp_impl.clarify_intent(user_message, potential_intents)
-        else:
-            logger.warning("Response generation implementation missing 'clarify_intent'. Assuming user confirmed.")
-            clarified_intent = context.current_intent if "no" not in user_message.lower() else None
-            
-        if clarified_intent:
-            logger.info(f"Intent clarified to: {clarified_intent}")
-            context.current_intent = clarified_intent
-            context.excluded_intents = [] 
-            context.parameter_validation_errors = []
-            # Load specific implementations
-            param_impl = self._get_param_extraction(context.current_intent)
-            resp_impl = self._get_response_generation(context.current_intent)
-            
-            # Check if parameters are needed
-            if self._command_requires_parameters(context.current_intent):
-                self._transition_state(context, NLUPipelineState.PARAMETER_IDENTIFICATION)
-                # Attempt identification immediately
-                return self._handle_initial_param_id_and_validate(context, user_message, param_impl)
-            else:
-                # No parameters needed, attempt execution or go straight to response
-                logger.info(f"Intent {context.current_intent} requires no parameters. Skipping identification/validation.")
-                # TODO: Determine if code execution is needed
-                needs_code_execution = False # Placeholder
-                if needs_code_execution:
-                    self._transition_state(context, NLUPipelineState.CODE_EXECUTION)
-                    return self._handle_code_execution(context, user_message, resp_impl)
-                else:
-                    self._transition_state(context, NLUPipelineState.RESPONSE_TEXT_GENERATION)
-                    return self._handle_final_response_generation(context, user_message, resp_impl)
-        else:
-            self._reset_pipeline(context)
-            return "Okay, let's try again. What would you like to do?"
-
-    def _handle_initial_param_id_and_validate(self, context: NLUPipelineContext, user_message: str, param_impl: ParameterExtractionInterface) -> str:
-        """Handles the first attempt at parameter identification and validation."""
-        logger.debug("Handling initial PARAMETER_IDENTIFICATION and VALIDATION attempt")
-        if not context.current_intent:
-             logger.error("Attempted parameter handling without a confirmed intent.")
-             self._reset_pipeline(context)
-             return "Error: Cannot process parameters without a clear intent."
-
-        # 1. Identify Parameters
-        if self._has_method(param_impl, "identify_parameters"):
-                identified_params = param_impl.identify_parameters(user_message, context.current_intent)
-                context.current_parameters.update(identified_params) # Merge params
-                logger.info(f"Parameters identified: {context.current_parameters}")
-        else:
-                logger.warning("Parameter extraction implementation missing 'identify_parameters'. Skipping identification.")
-        
-        # 2. Validate Parameters
-        validation_passed = False
-        validation_message = None
-        if self._has_method(param_impl, "validate_parameters"):
-                # Pass only intent and parameters
-                validation_passed, validation_message = param_impl.validate_parameters(
-                    context.current_intent, context.current_parameters
-                )
-                # Store error message as a list
-                context.parameter_validation_errors = [] if validation_passed else [validation_message] if validation_message else ["Validation failed"]
-                logger.info(f"Parameter validation result: Passed={validation_passed}, Message={validation_message}")
-        else:
-                logger.warning("Parameter extraction implementation missing 'validate_parameters'. Assuming parameters are valid.")
-                validation_passed = True # Assume valid if no validator
-
-        # 3. Transition based on validation
-        if validation_passed:
-            logger.info("Parameter validation passed. Moving to execution/response.")
-            # TODO: Determine if code execution is needed
-            needs_code_execution = False # Placeholder
-            if needs_code_execution:
-                self._transition_state(context, NLUPipelineState.CODE_EXECUTION)
-                return self._handle_code_execution(context, user_message, self._get_response_generation(context.current_intent))
-            else:
-                self._transition_state(context, NLUPipelineState.RESPONSE_TEXT_GENERATION)
-                return self._handle_final_response_generation(context, user_message, self._get_response_generation(context.current_intent))
-        else:
-            logger.info("Parameter validation failed. Moving to PARAMETER_VALIDATION state.")
-            self._transition_state(context, NLUPipelineState.PARAMETER_VALIDATION)
-            return validation_message or "Please provide the required information." # Return error message to user
-
-    def _handle_subsequent_param_validation(self, context: NLUPipelineContext, user_message: str, param_impl: ParameterExtractionInterface) -> str:
-        """Handles subsequent parameter validation attempts when state is PARAMETER_VALIDATION."""
-        logger.debug("Handling subsequent PARAMETER_VALIDATION attempt")
-        if not context.current_intent:
-             logger.error("Attempted parameter handling without a confirmed intent.")
-             self._reset_pipeline(context)
-             return "Error: Cannot process parameters without a clear intent."
-
-        # Re-attempt identification using the new user message, merging with existing params
-        if self._has_method(param_impl, "identify_parameters"):
-                # Pass existing params so the impl can potentially refine or just add new ones
-                identified_params = param_impl.identify_parameters(
-                    user_message, context.current_intent
-                )
-                context.current_parameters.update(identified_params) # Merge new params
-                logger.info(f"Parameters updated after user input: {context.current_parameters}")
-        else:
-             logger.warning("Parameter extraction implementation missing 'identify_parameters'. Cannot refine parameters.")
-
-        # Re-validate with potentially updated parameters
-        validation_passed = False
-        validation_message = None
-        if self._has_method(param_impl, "validate_parameters"):
-                # Pass only intent and parameters
-                validation_passed, validation_message = param_impl.validate_parameters(
-                    context.current_intent, context.current_parameters
-                )
-                # Store error message as a list
-                context.parameter_validation_errors = [] if validation_passed else [validation_message] if validation_message else ["Validation failed"]
-                logger.info(f"Parameter validation result: Passed={validation_passed}, Message={validation_message}")
-        else:
-                logger.warning("Parameter extraction implementation missing 'validate_parameters'. Assuming parameters are valid.")
-                validation_passed = True
-
-        # Transition based on re-validation
-        if validation_passed:
-            logger.info("Parameter validation passed. Moving to execution/response.")
-            # TODO: Determine if code execution is needed
-            needs_code_execution = False # Placeholder
-            if needs_code_execution:
-                self._transition_state(context, NLUPipelineState.CODE_EXECUTION)
-                return self._handle_code_execution(context, user_message, self._get_response_generation(context.current_intent))
-            else:
-                self._transition_state(context, NLUPipelineState.RESPONSE_TEXT_GENERATION)
-                return self._handle_final_response_generation(context, user_message, self._get_response_generation(context.current_intent))
-        else:
-            logger.info("Parameter validation failed again. Staying in PARAMETER_VALIDATION state.")
-            self._transition_state(context, NLUPipelineState.PARAMETER_VALIDATION) # Stay in this state
-            return validation_message or "I still need more information. Could you please provide the details?" # Return error message
-
-    def _handle_code_execution(self, context: NLUPipelineContext, user_message: str, resp_impl: ResponseGenerationInterface) -> str:
-        """Handles logic for the CODE_EXECUTION state."""
-        logger.debug("Handling CODE_EXECUTION")
-        # TODO: Implement actual command execution
-        execution_results = {"status": "success", "result": "Placeholder execution result"}
-        context.current_parameters["execution_results"] = execution_results
-        logger.info(f"Code execution completed. Results: {execution_results}")
-        self._transition_state(context, NLUPipelineState.RESPONSE_TEXT_GENERATION)
-        # Immediately generate final response
-        return self._handle_final_response_generation(context, user_message, resp_impl)
-        
-    def _handle_final_response_generation(self, context: NLUPipelineContext, user_message: str, resp_impl: ResponseGenerationInterface) -> str:
-        """Handles the final response generation after execution or validation."""
-        logger.debug("Handling final RESPONSE_TEXT_GENERATION")
-        response = "Task completed successfully." # Default success response
-        
-        if self._has_method(resp_impl, "generate_response"):
-            cmd_desc = context.current_intent or user_message # Use intent if known
-            exec_res = context.current_parameters.get("execution_results", {})                    
-            # Store context *before* potentially clearing intent below
-            context.last_user_message_for_response = cmd_desc
-            context.last_execution_results_for_response = exec_res
-            try:
-                response = resp_impl.generate_response(cmd_desc, exec_res)
-                logger.info(f"Generated final response: {response}")
-            except Exception as gen_e:
-                    logger.exception(f"Error during final response generation: {gen_e}")
-                    response = "I completed the task, but had trouble generating a summary."
-        else:
-            logger.warning("Response generation implementation missing 'generate_response'. Using default.")
-            
-        # DO NOT Reset context fields here; moved to start of RESPONSE_TEXT_GENERATION state handling
-        # context.current_intent = None
-        # context.current_parameters = {}
-        # context.parameter_validation_errors = {}
-        # context.confidence_score = 0.0
-        # context.excluded_intents = [] # Clear exclusions after success
-        
-        # Transition to ensure state remains RESPONSE_TEXT_GENERATION
-        self._transition_state(context, NLUPipelineState.RESPONSE_TEXT_GENERATION)
-        return response
+    def _reset_interaction(self, context: NLUPipelineContext) -> None:
+        """Resets the interaction mode and data in the context."""
+        logger.debug("Resetting interaction mode.")
+        context.interaction_mode = None
+        context.interaction_data = None
 
     def _get_nlu_context(self) -> NLUPipelineContext:
         """Get NLU context from ChatContext app_context."""
-        context_data = CHAT_CONTEXT.app_context.get("nlu_pipeline")
-        if not context_data:
-            logger.debug("NLU context not found in app_context, initializing.")
-            context = NLUPipelineContext()
-            CHAT_CONTEXT.app_context["nlu_pipeline"] = context.model_dump()
-            return context
-        
-        # Ensure loaded context is validated against the model
+        context_data = CHAT_CONTEXT.app_context.get("nlu_context", {})
         try:
-            # Convert state string back to Enum if necessary
-            if isinstance(context_data.get("current_state"), str):
-                 try:
-                      context_data["current_state"] = NLUPipelineState(context_data["current_state"])
-                 except ValueError:
-                      logger.warning(f"Invalid state value '{context_data['current_state']}' found in context, resetting state.")
-                      context_data["current_state"] = NLUPipelineState.RESPONSE_TEXT_GENERATION
-                      
-            return NLUPipelineContext.model_validate(context_data)
+            # Use parse_obj for potentially incomplete data during migration
+            return NLUPipelineContext.parse_obj(context_data)
         except Exception as e:
-            logger.warning(f"Failed to validate NLU context, resetting: {e}")
-            context = NLUPipelineContext()
-            CHAT_CONTEXT.app_context["nlu_pipeline"] = context.model_dump()
-            return context
+            logger.warning(f"Failed to parse stored NLU context: {e}. Resetting context.")
+            return NLUPipelineContext() # Return default context on error
 
     def _save_nlu_context(self, context: NLUPipelineContext) -> None:
         """Save NLU context to ChatContext app_context."""
         # Store enum state as string value for better serialization
         context_dump = context.model_dump()
         context_dump["current_state"] = context.current_state.value
-        CHAT_CONTEXT.app_context["nlu_pipeline"] = context_dump
+        try:
+             # Convert Pydantic model to dict, handling potential custom types if needed
+             # Using exclude_none=True might be useful to keep saved context clean
+            CHAT_CONTEXT.app_context["nlu_context"] = context.dict(exclude_none=True)
+        except Exception as e:
+            logger.error(f"Failed to serialize NLU context for saving: {e}")
 
     def _transition_state(self, context: NLUPipelineContext, new_state: NLUPipelineState) -> None:
-        """Helper to transition state and log it."""
-        # Note: Logging is now done within process_message after state processing
-        context.current_state = new_state
-        # Do not save context here; saved once at the end of process_message
-        
-    def _reset_pipeline(self, context: NLUPipelineContext) -> None:
-        """Resets the pipeline state, keeping classroom mode."""
-        classroom_mode = context.classroom_mode # Preserve classroom mode
-        new_context_dict = NLUPipelineContext(classroom_mode=classroom_mode).model_dump()
-        # Update the passed context object directly for immediate effect within process_message
-        context.current_state = NLUPipelineState(new_context_dict["current_state"])
-        context.excluded_intents = new_context_dict["excluded_intents"]
-        context.current_intent = new_context_dict["current_intent"]
-        context.current_parameters = new_context_dict["current_parameters"]
-        context.parameter_validation_errors = new_context_dict["parameter_validation_errors"] # Should be []
-        context.confidence_score = new_context_dict["confidence_score"]
-        # Also reset the last response context
-        context.last_user_message_for_response = None 
-        context.last_execution_results_for_response = None
-        # Saving happens at the end of process_message
-        logger.info("NLU Pipeline reset to initial state.") 
+        """Helper to log and perform state transitions."""
+        if context.current_state != new_state:
+            logger.debug(f"Transitioning NLU state: {context.current_state.value} -> {new_state.value}")
+            context.current_state = new_state
+        else:
+            logger.debug(f"Staying in NLU state: {context.current_state.value}")
 
-    def _save_artifacts_and_log_transition(self, context: NLUPipelineContext, start_state: NLUPipelineState, user_message: str, response: str) -> None:
-        """Save artifacts and log state transition."""
-        # Save NLU context
+    def _reset_pipeline(self, context: NLUPipelineContext) -> None:
+        """Resets the pipeline state and interaction mode."""
+        logger.warning("Resetting NLU pipeline state.")
+        self._reset_interaction(context)
+        context.current_state = NLUPipelineState.INTENT_CLASSIFICATION
+        context.current_intent = None
+        context.current_parameters = {}
+        context.parameter_validation_errors = []
+        context.confidence_score = 0.0
+        context.excluded_intents = []
+        context.last_user_message_for_response = None
+        context.last_execution_results_for_response = None
+        # Save the reset context immediately?
         self._save_nlu_context(context)
 
-        # Create NLUArtifacts object
-        nlu_artifacts = NLUArtifacts(
-            state=start_state.value if start_state else None,
-            intent=context.current_intent,
-            parameters=context.current_parameters,
-            excluded_intents=context.excluded_intents,
-            confidence_score=context.confidence_score
-        )
-        
-        # Create ConversationArtifacts with nested NLU data
-        artifacts = ConversationArtifacts(nlu=nlu_artifacts)
+    async def process_message(self, user_message: str) -> str:
+        """Process a user message through the NLU pipeline using modal interaction."""
+        context = self._get_nlu_context()
+        start_state = context.current_state
+        response = "Sorry, I encountered an issue processing your request." # Default error response
 
-        CHAT_CONTEXT.append_to_conversation_history(
-            user_message, response, artifacts
-        )
+        logger.info(f"NLU Pipeline START: Processing '{user_message[:50]}...' in state {start_state.value} (Interaction: {context.interaction_mode})")
 
+        try:
+            # 1. Meta-Command Check
+            meta_command = check_for_meta_commands(user_message)
+            if meta_command != MetaCommandType.NONE:
+                logger.info(f"Meta command detected: {meta_command.name}")
+                if meta_command == MetaCommandType.CANCEL:
+                    # Reset full pipeline state for CANCEL, similar to RESET
+                    self._reset_pipeline(context) # Call reset_pipeline, not just reset_interaction
+                    response = "Okay, cancelling the current operation."
+                elif meta_command == MetaCommandType.HELP:
+                    # Provide help without changing state significantly
+                    response = "Help: [Provide relevant help text based on state or mode if possible]"
+                    # Don't reset interaction for help
+                elif meta_command == MetaCommandType.RESET:
+                    self._reset_pipeline(context) # Resets interaction too
+                    response = "Okay, let's start over. What would you like to do?"
+
+                # Save context changes after handling meta command
+                self._save_nlu_context(context)
+                return response
+
+
+            # 2. Active Interaction Mode Handling
+            if context.interaction_mode:
+                handler = self._interaction_handlers.get(context.interaction_mode)
+                if handler:
+                    logger.debug(f"Handling input with: {type(handler).__name__}")
+                    # Assuming handlers are synchronous for now
+                    result: InteractionResult = handler.handle_input(user_message, context)
+
+                    # Process result
+                    if result.update_context:
+                        logger.debug(f"Updating context with: {result.update_context}")
+                        for key, value in result.update_context.items():
+                            # Only update if the key exists in the model to avoid errors
+                            if hasattr(context, key):
+                                setattr(context, key, value)
+                            else:
+                                logger.warning(f"Attempted to update non-existent context field: {key}")
+
+                    if result.exit_mode:
+                        logger.debug(f"Exiting interaction mode: {context.interaction_mode.name}")
+                        mode_exited = context.interaction_mode # Store before resetting
+                        self._reset_interaction(context)
+                        # If requested, proceed immediately by re-running logic (carefully)
+                        if result.proceed_immediately:
+                            logger.debug("Proceeding immediately after exiting mode.")
+                            # Re-process based on the NEW context state.
+                            # This recursively calls process_message with the *same* user message
+                            # but the context is now updated (new state, intent, params etc.)
+                            # Need safeguards against infinite loops!
+                            # Option 1: Recurse (use with caution, max depth?)
+                            # response = self.process_message(user_message) # DANGEROUS - Infinite loop risk if state doesn't advance
+
+                            # Option 2: Transition to next logical state here & run that handler directly
+                            # Determine next step based on what mode just finished
+                            if mode_exited == InteractionState.CLARIFYING_INTENT:
+                                # Intent clarified, move to param identification
+                                self._transition_state(context, NLUPipelineState.PARAMETER_IDENTIFICATION)
+                                response = await self._handle_state_logic(user_message, context) # Refactored logic
+                            elif mode_exited == InteractionState.VALIDATING_PARAMETER:
+                                # Params provided, re-validate or move to execution
+                                self._transition_state(context, NLUPipelineState.PARAMETER_IDENTIFICATION) # Re-run param check
+                                response = await self._handle_state_logic(user_message, context) # Refactored logic
+                            else:
+                                response = result.response # Fallback if no immediate action defined
+                        else:
+                            response = result.response
+                    else:
+                        # Still in interaction mode, return the handler's (re)prompt or error
+                        response = result.response
+
+                else:
+                    logger.error(f"No handler found for interaction mode: {context.interaction_mode}")
+                    self._reset_interaction(context) # Reset if handler is missing
+                    response = "Sorry, an internal error occurred with the current interaction."
+
+                # Save context changes after handling interaction
+                self._save_nlu_context(context)
+                return response
+
+
+            # 3. Standard Pipeline Flow (No Active Interaction Mode)
+            response = await self._handle_state_logic(user_message, context)
+
+
+        except Exception as e:
+            logger.exception(f"Unhandled error processing NLU state {start_state.value} (Interaction: {context.interaction_mode}): {e}")
+            response = "I encountered an unexpected error. Please try again."
+            # Attempt to reset state on unhandled exceptions
+            try:
+                self._reset_pipeline(context)
+            except Exception as reset_e:
+                 logger.exception(f"Failed to reset pipeline after error: {reset_e}")
+
+
+        # --- Save Final Context and Log Transition ---
+        # Ensure context is saved even if handled by interaction mode earlier (idempotent)
+        self._save_nlu_context(context)
+
+        # Log state transition if it happened
         end_state = context.current_state
         if start_state != end_state:
              logger.info(
-                f"NLU Pipeline: State transition {start_state.value} → {end_state.value}",
+                f"NLU Pipeline: State transition {start_state.value} -> {end_state.value}",
                 extra={
                     "from_state": start_state.value,
                     "to_state": end_state.value,
-                    "intent": context.current_intent
+                    "intent": context.current_intent,
+                    "interaction_mode": context.interaction_mode.value if context.interaction_mode else None
                 }
-            ) 
+            )
+
+        # --- Save Artifacts (if applicable) ---
+        # This part might need adjustment based on where artifacts are generated
+        # self._save_artifacts(context, start_state, user_message, response)
+
+
+        logger.info(f"NLU Pipeline END: State={context.current_state.value} (Interaction: {context.interaction_mode}), Response='{response[:50]}...'")
+        return response
+
+    async def _handle_state_logic(self, user_message: str, context: NLUPipelineContext) -> str:
+        """Handles the logic for the current state when not in an interaction mode."""
+        current_state = context.current_state
+        response = f"Unhandled state: {current_state.value}" # Default for unhandled states
+
+        logger.debug(f"Executing standard logic for state: {current_state.value}")
+
+        # --- Get current implementations ---
+        # Note: Intent might be None initially
+        param_impl = self._get_param_extraction(context.current_intent)
+        resp_impl = self._get_response_generation(context.current_intent)
+
+        # --- State-Specific Logic ---
+        if current_state == NLUPipelineState.INTENT_CLASSIFICATION:
+            # --- Intent Classification ---
+            logger.debug("Classifying intent...")
+            intents_result = []
+            if self._has_method(resp_impl, "classify_intent"):
+                 try:
+                     # Assuming classify_intent consistently returns list of dicts [{ "name": str, "score": float }]
+                     # or an empty list, or potentially a tuple (name, score) for backward compatibility.
+                     raw_result = resp_impl.classify_intent(user_message, context.excluded_intents)
+
+                     if isinstance(raw_result, list):
+                         intents_result = raw_result # Already a list
+                     elif isinstance(raw_result, tuple) and len(raw_result) == 2 and isinstance(raw_result[0], str) and isinstance(raw_result[1], (float, int)):
+                         # Convert single tuple result (name, score) to list format if valid
+                         if raw_result[0] != "unknown":
+                             intents_result = [{"name": raw_result[0], "score": float(raw_result[1])}]
+                     elif raw_result:
+                          logger.warning(f"Unexpected classify_intent result format: {type(raw_result)}. Treating as no result.")
+                          intents_result = []
+                     # else: intents_result remains []
+
+                 except Exception as e:
+                     logger.exception(f"Error calling classify_intent: {e}") # Log full traceback
+                     intents_result = []
+            else:
+                 logger.warning("Response generation implementation lacks classify_intent method.")
+                 intents_result = []
+
+            top_intent_name = None
+            top_intent_score = 0.0
+            is_ambiguous = False
+
+            # --- Process results only if we got any valid ones ---
+            if intents_result and isinstance(intents_result, list):
+                # Clean/Validate results (ensure dicts with name/score)
+                valid_results = []
+                for item in intents_result:
+                    if isinstance(item, dict) and "name" in item and "score" in item and isinstance(item["name"], str) and isinstance(item["score"], (float, int)):
+                        valid_results.append({"name": item["name"], "score": float(item["score"])})
+                    else:
+                        logger.warning(f"Invalid item format in intent results: {item}")
+                intents_result = valid_results # Replace with cleaned list
+
+                # Sort by score descending if we still have results
+                if intents_result:
+                    try:
+                        intents_result.sort(key=lambda x: x["score"], reverse=True)
+                    except Exception as e: # Catch potential errors during sort
+                         logger.error(f"Error sorting intent results: {e} - Results: {intents_result}")
+                         # Don't trust results after sort error? Maybe clear intents_result?
+                         # For now, proceed cautiously, the top item might still be usable if list isn't empty
+
+                # Safely extract top intent details if list not empty after cleaning/sorting
+                if intents_result:
+                    top_intent_data = intents_result[0]
+                    top_intent_name = top_intent_data.get("name") # Already validated as str
+                    top_intent_score = top_intent_data.get("score") # Already validated as float
+
+                    # Check for ambiguity (only if >1 result and scores are close)
+                    ambiguity_threshold = 0.1 # Example threshold
+                    if len(intents_result) > 1:
+                         second_intent_score = intents_result[1].get("score", 0.0)
+                         # Ensure second score is also float for comparison
+                         if isinstance(second_intent_score, (float, int)):
+                             if (top_intent_score - float(second_intent_score)) < ambiguity_threshold:
+                                 is_ambiguous = True
+                         else:
+                              logger.warning(f"Second intent had invalid score type: {intents_result[1]}")
+
+            # --- Decision Logic (Ambiguity > Low Confidence > Proceed) ---
+            if not top_intent_name:
+                 # Handle case where classification failed or returned no usable results
+                 logger.warning("Intent classification yielded no usable intent name.")
+                 response = "Sorry, I couldn't understand your request clearly."
+                 # Reset? Or just go back to waiting?
+                 self._transition_state(context, NLUPipelineState.RESPONSE_TEXT_GENERATION)
+                 return response # Exit early
+
+            elif is_ambiguous:
+                 logger.info(f"Intent ambiguity detected ({len(intents_result)} options). Entering clarification mode.")
+                 # Ensure options are extracted correctly from the *validated* list
+                 options = [i["name"] for i in intents_result]
+                 context.interaction_mode = InteractionState.CLARIFYING_INTENT
+                 context.interaction_data = ClarificationData(
+                     options=options,
+                     original_query=user_message
+                     # Uses default prompt from model
+                 )
+                 self._transition_state(context, NLUPipelineState.INTENT_CLARIFICATION)
+                 handler = self._interaction_handlers[context.interaction_mode]
+                 response = handler.get_initial_prompt(context)
+
+            # CRITICAL: Ensure top_intent_score is actually a float before comparing!
+            elif isinstance(top_intent_score, (float, int)) and float(top_intent_score) < 0.8: # Configurable threshold
+                 logger.info(f"Low confidence ({top_intent_score:.2f}) for intent '{top_intent_name}'. Entering clarification mode.")
+                 context.interaction_mode = InteractionState.CLARIFYING_INTENT
+                 # Offer the single low-confidence option
+                 context.interaction_data = ClarificationData(
+                     options=[top_intent_name],
+                     original_query=user_message,
+                     prompt="I think you might mean this, but I'm not sure:" # Specific prompt for low confidence
+                 )
+                 self._transition_state(context, NLUPipelineState.INTENT_CLARIFICATION)
+                 handler = self._interaction_handlers[context.interaction_mode]
+                 response = handler.get_initial_prompt(context)
+
+            elif isinstance(top_intent_score, (float, int)): # Check type before assuming proceed
+                 # High confidence and not ambiguous -> Proceed
+                 logger.info(f"Intent classified as: {top_intent_name} (Score: {top_intent_score:.2f})")
+                 context.current_intent = top_intent_name
+                 context.confidence_score = top_intent_score
+                 # Ensure any previous interaction mode stuff is cleared if we proceed normally
+                 self._reset_interaction(context)
+                 self._transition_state(context, NLUPipelineState.PARAMETER_IDENTIFICATION)
+                 # Proceed directly to parameter identification in the same call
+                 response = await self._handle_state_logic(user_message, context)
+            else:
+                 # This case handles if top_intent_score was somehow not a valid number after all checks
+                 logger.error(f"Could not proceed: top_intent_score has invalid type ({type(top_intent_score)}) for intent '{top_intent_name}'.")
+                 response = "Sorry, I encountered an issue processing the intent confidence."
+                 self._transition_state(context, NLUPipelineState.RESPONSE_TEXT_GENERATION)
+                 return response
+
+        elif current_state == NLUPipelineState.PARAMETER_IDENTIFICATION:
+            # --- Parameter Identification & Initial Validation ---
+            if not context.current_intent:
+                 logger.error("Reached PARAMETER_IDENTIFICATION state without an intent.")
+                 self._reset_pipeline(context)
+                 return "An internal error occurred (missing intent). Resetting."
+
+            logger.debug(f"Extracting parameters for intent: {context.current_intent}")
+            # TODO: Replace dummy data with actual calls
+            # extracted_params = await param_impl.extract_parameters(user_message, context.current_intent, ...) # Actual call
+            # validation_errors = self._validate_parameters(extracted_params, context.current_intent) # Actual validation
+            extracted_params = {}
+            validation_errors = []
+            validation_message = None # From validate_parameters
+            if self._has_method(param_impl, "identify_parameters"):
+                try:
+                    # Pass necessary arguments
+                    extracted_params = param_impl.identify_parameters(user_message, context.current_intent)
+                except Exception as e:
+                    logger.error(f"Error calling identify_parameters: {e}")
+                    extracted_params = {}
+            else:
+                logger.warning("Parameter extraction implementation lacks identify_parameters method.")
+
+            if self._has_method(param_impl, "validate_parameters"):
+                 try:
+                     # Pass intent and parameters
+                     validation_passed, validation_message = param_impl.validate_parameters(
+                         context.current_intent, extracted_params
+                     )
+                     if not validation_passed:
+                         validation_errors = [validation_message or "Validation failed"]
+                 except Exception as e:
+                     logger.error(f"Error calling validate_parameters: {e}")
+                     # Decide how to handle validation error - assume invalid?
+                     validation_errors = ["Error during parameter validation"]
+            else:
+                 logger.warning("Parameter extraction implementation lacks validate_parameters method. Assuming valid.")
+                 # validation_passed defaults to True implicitly if no errors found
+
+            # --- End Remove Dummy Data ---
+
+            context.current_parameters.update(extracted_params) # Update with extracted (even if potentially invalid)
+            context.parameter_validation_errors = validation_errors # Store errors
+
+            if validation_errors:
+                logger.info("Parameter validation errors found. Entering validation mode.")
+                # Handle first error for now - improve logic to handle multiple errors potentially
+                error_msg = validation_errors[0]
+                # Basic parsing to find param name - improve robustness
+                param_name = self._extract_param_name_from_error(error_msg, "unknown_param")
+
+                context.interaction_mode = InteractionState.VALIDATING_PARAMETER
+                context.interaction_data = ValidationData(
+                    parameter_name=param_name,
+                    error_message=error_msg,
+                    current_value=context.current_parameters.get(param_name)
+                    # Prompt uses default template from model
+                )
+                self._transition_state(context, NLUPipelineState.PARAMETER_VALIDATION) # Mark state
+                handler = self._interaction_handlers[context.interaction_mode]
+                response = handler.get_initial_prompt(context)
+            else:
+                # All params valid, move to execution
+                logger.info("Parameters identified and valid.")
+                self._transition_state(context, NLUPipelineState.CODE_EXECUTION)
+                response = await self._handle_state_logic(user_message, context) # Recurse carefully
+
+        elif current_state == NLUPipelineState.CODE_EXECUTION:
+            # --- Code Execution ---
+            if not context.current_intent: # Added check for parameters removed as they might be optional
+                 logger.error("Reached CODE_EXECUTION state without intent.")
+                 self._reset_pipeline(context)
+                 return "An internal error occurred (missing intent). Resetting."
+
+            logger.debug(f"Executing code for intent '{context.current_intent}' with params: {context.current_parameters}")
+            # TODO: Replace dummy data with actual execution call
+            # execution_results = await self._execute_command(...) # Replace with actual execution logic
+            try:
+                # Placeholder for where execution would happen
+                # Assume execution logic exists elsewhere, e.g., in CommandExecutor
+                # We need to get the result here. For now, use dummy data.
+                execution_results = {"status": "Success", "data": "Executed placeholder."}
+                logger.info(f"Placeholder code execution complete. Results: {execution_results}")
+            except Exception as e:
+                logger.exception("Error during placeholder code execution:")
+                execution_results = {"status": "Error", "error": str(e)}
+            # --- End Remove Dummy Data ---
+            context.last_execution_results_for_response = execution_results # Store results
+
+            # Check execution status - maybe need interaction if it failed? (Future enhancement)
+            if execution_results.get("status") != "Success":
+                 logger.warning(f"Code execution failed or reported non-success: {execution_results}")
+                 # Handle failure - maybe generate error response or try recovery
+                 # For now, proceed to response generation with the failure info
+
+            self._transition_state(context, NLUPipelineState.RESPONSE_TEXT_GENERATION)
+            response = await self._handle_state_logic(user_message, context) # Recurse carefully
+
+        elif current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION:
+            # --- Response Generation ---
+            logger.debug("Generating final response.")
+            # TODO: Replace dummy data with actual call to resp_impl
+            # final_response = await resp_impl.generate_response(context) # Actual call
+            final_response = "Default final response."
+            if self._has_method(resp_impl, "generate_response"):
+                try:
+                    # Determine command description and results to pass
+                    cmd_desc = context.current_intent or context.last_user_message_for_response or "Unknown command"
+                    exec_res = context.last_execution_results_for_response or {}
+                    final_response = resp_impl.generate_response(cmd_desc, exec_res)
+                except Exception as e:
+                    logger.error(f"Error calling generate_response: {e}")
+                    final_response = "Error generating response."
+            else:
+                logger.warning("Response generation implementation lacks generate_response method.")
+                # Use a generic response based on execution status if possible
+                status = context.last_execution_results_for_response.get("status", "Unknown") if context.last_execution_results_for_response else "Unknown"
+                if status == "Success":
+                    final_response = "Task completed successfully."
+                elif status == "Error":
+                    final_response = "An error occurred executing the command."
+                else:
+                    final_response = "Processing complete."
+
+            # --- End Remove Dummy Data ---
+
+            context.last_user_message_for_response = user_message # Save for potential feedback
+
+            # --- Optional Feedback Step ---
+            ask_for_feedback = False # Configuration or logic to decide this
+            if ask_for_feedback:
+                logger.info("Requesting user feedback on the response.")
+                context.interaction_mode = InteractionState.AWAITING_FEEDBACK
+                context.interaction_data = FeedbackData(
+                    response_text=final_response,
+                    execution_results=context.last_execution_results_for_response
+                    # Prompt uses default from model
+                )
+                # State remains RESPONSE_TEXT_GENERATION while awaiting feedback
+                handler = self._interaction_handlers[context.interaction_mode]
+                feedback_prompt = handler.get_initial_prompt(context)
+                response = f"{final_response}\n\n{feedback_prompt}"
+            else:
+                # If not asking for feedback, the pipeline turn is complete.
+                # State remains RESPONSE_TEXT_GENERATION, ready for the *next* message.
+                response = final_response
+                # Consider clearing transient data like execution results if appropriate here
+                # context.last_execution_results_for_response = None
+
+
+        # Handle states that are primarily markers for interaction modes
+        elif current_state in [NLUPipelineState.INTENT_CLARIFICATION, NLUPipelineState.PARAMETER_VALIDATION]:
+             # If we reach here, it means we are *not* in an interaction mode,
+             # but the state suggests we should be. This might happen if an interaction
+             # was cancelled or completed without immediately proceeding.
+             logger.warning(f"Reached state {current_state.value} without an active interaction mode. Resetting to INTENT_CLASSIFICATION.")
+             # Best recovery is likely to restart the process for the current message
+             self._transition_state(context, NLUPipelineState.INTENT_CLASSIFICATION)
+             response = await self._handle_state_logic(user_message, context) # Recurse carefully
+
+        else:
+            logger.error(f"Reached _handle_state_logic with unknown or unhandled state: {current_state.value}")
+            self._reset_pipeline(context)
+            response = "An internal error occurred due to an unknown state."
+
+        return response
+
+    def _extract_param_name_from_error(self, error_msg: str, default: str = "parameter") -> str:
+        """Simple helper to extract parameter name from error messages (improve robustness)."""
+        try:
+            # Example: "Missing required parameter 'date'"
+            parts = error_msg.split("'")
+            if len(parts) >= 3:
+                return parts[1] # Assumes name is between single quotes
+        except Exception:
+            pass # Ignore parsing errors
+        return default
+
+    # ... (Remove or adapt old state handler methods like _handle_intent_classification,
+    #      _handle_intent_clarification, _handle_initial_param_id_and_validate, etc.
+    #      Their logic is now incorporated into _handle_state_logic or the Interaction Handlers)
+
+    # --- Artifact Saving (Adapt as needed) ---
+    # def _save_artifacts(self, context: NLUPipelineContext, start_state: NLUPipelineState, user_message: str, response: str) -> None:
+    #     """Saves NLU artifacts to the conversation history."""
+    #     nlu_artifacts = NLUArtifacts(
+    #         start_state=start_state.value,
+    #         end_state=context.current_state.value,
+    #         interaction_mode=context.interaction_mode.value if context.interaction_mode else None,
+    #         intent=context.current_intent,
+    #         parameters=context.current_parameters,
+    #         validation_errors=context.parameter_validation_errors,
+    #         confidence_score=context.confidence_score,
+    #         excluded_intents=context.excluded_intents
+    #     )
+    #     artifacts = ConversationArtifacts(nlu=nlu_artifacts)
+    #     CHAT_CONTEXT.append_to_conversation_history(user_message, response, artifacts)
+
+
+# ... (Potentially keep old state handlers if they contain complex logic worth preserving/adapting,
+#      or remove them cleanly if their logic is fully migrated)
+
+# ... (Rest of the existing methods like _save_artifacts_and_log_transition, _reset_pipeline, etc.) ...
+# ... (Keep the existing implementation of these methods) ...
+
+# ... (Rest of the existing methods like _save_artifacts_and_log_transition, _reset_pipeline, etc.) ...
+# ... (Keep the existing implementation of these methods) ... 
