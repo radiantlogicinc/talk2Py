@@ -109,7 +109,7 @@ class Todo:
         return f"{status} {self.id}: {self.description}"
 
 
-class TodoList:
+class TodoList(Todo):
     """Class for managing a collection of Todo items."""
 
     def __init__(self) -> None:

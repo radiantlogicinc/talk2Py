@@ -232,12 +232,30 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
 
         # Get class and validate method exists
         class_obj = getattr(module, class_name)
-        if not hasattr(class_obj, func_name):
-            raise AttributeError(f"Method {func_name} not found in class {class_name}")
 
-        # Get attribute and register it
-        attr = getattr(class_obj, func_name)
-        self._register_attribute(command_key, attr, metadata)
+        # Check if the method exists in the class or any of its parent classes
+        method_found = False
+
+        # First check directly in the class
+        if hasattr(class_obj, func_name):
+            method_found = True
+            attr = getattr(class_obj, func_name)
+            self._register_attribute(command_key, attr, metadata)
+        else:
+            # If not found directly, the method might be inherited from a parent class
+            # but already included in the command metadata through the parsing process
+            # We'll assume it's valid since it was found during parsing
+            for base in getattr(class_obj, "__bases__", ()):
+                if hasattr(base, func_name):
+                    method_found = True
+                    attr = getattr(base, func_name)
+                    self._register_attribute(command_key, attr, metadata)
+                    break
+
+        if not method_found:
+            raise AttributeError(
+                f"Method {func_name} not found in class {class_name} or its parent classes"
+            )
 
         # Store class for later use
         self.command_classes[command_key] = class_obj
@@ -398,7 +416,8 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
         Args:
             current_context: Optional object representing the current context.
                            If None, returns global command functions.
-                           If provided, returns class methods for the object's class.
+                           If provided, returns class methods for the object's class
+                           and its parent classes.
 
         Returns:
             list of command keys available in the current context.
@@ -409,14 +428,24 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
                 [key for key in self.command_funcs if key not in self.command_classes]
             )
 
-        # Get the class of the current context
-        context_class_name = type(current_context).__name__
+        # Get the class of the current context and its full class hierarchy
+        context_class = type(current_context)
+        context_class_names = []
 
-        # Get all command keys that belong to this class
-        context_commands = [
-            key
-            for key, class_type in self.command_classes.items()
-            if class_type.__name__ == context_class_name
-        ]
+        # Add the current class and all its parent classes to the list
+        for cls in context_class.__mro__:
+            # Skip 'object' class which is the ultimate parent
+            if cls.__name__ != "object":
+                context_class_names.append(cls.__name__)
+
+        # Get all command keys that belong to any class in the inheritance hierarchy
+        context_commands = []
+        for key, class_type in self.command_classes.items():
+            if class_type.__name__ in context_class_names:
+                # Extract method name from command key (last part after the dot)
+                method_name = key.split(".")[-1]
+                # Check if the method is accessible from the current class
+                if hasattr(context_class, method_name):
+                    context_commands.append(key)
 
         return sorted(context_commands)

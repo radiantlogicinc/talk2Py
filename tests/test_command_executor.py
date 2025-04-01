@@ -258,3 +258,76 @@ def test_todo_app_copied_correctly(
             print(f"Error setting current todo: {e}")
     else:
         print("Todo does not have an _id attribute")
+
+
+def test_command_executor_inheritance(
+    todolist_executor: CommandExecutor, temp_todo_app: dict, _chat_context_reset
+) -> None:
+    """Test that commands inherited from parent classes work with CommandExecutor.
+
+    This test verifies that a command inherited from a parent class can be
+    executed through the CommandExecutor.
+
+    Args:
+        todolist_executor: Fixture providing CommandExecutor with todo registry
+        temp_todo_app: Fixture providing test module paths
+        _chat_context_reset: Fixture to reset chat context before and after test
+    """
+    app_path = str(temp_todo_app["module_dir"])
+    module_file = str(temp_todo_app["module_file"])
+    CHAT_CONTEXT.register_app(app_path)
+
+    # Load the TodoList class from the module
+    def load_class_from_sysmodules(file_path: str, class_name: str) -> Type[Any]:
+        """Dynamically load a class from sys.modules."""
+        module_name = os.path.splitext(os.path.basename(file_path))[0]
+        module = sys.modules[module_name]
+        return getattr(module, class_name)
+
+    # Get the TodoList and Todo classes
+    TodoList = load_class_from_sysmodules(module_file, "TodoList")
+    Todo = load_class_from_sysmodules(module_file, "Todo")
+
+    # Create instances
+    todo_list = TodoList()
+
+    # Verify TodoList inherits from Todo by checking the inheritance chain
+    assert Todo in TodoList.__mro__, "TodoList should inherit from Todo"
+
+    # Set the TodoList instance as the current object
+    CHAT_CONTEXT.current_object = todo_list
+
+    # Get the registry and check commands available for TodoList
+    registry = todolist_executor.command_registry
+    assert registry is not None, "Command registry should not be None"
+    todolist_commands = registry.get_commands_in_current_context(todo_list)
+    todolist_command_names = {cmd.split(".")[-1] for cmd in todolist_commands}
+
+    # Verify TodoList has its own commands
+    assert "add_todo" in todolist_command_names
+    assert "get_todo" in todolist_command_names
+    assert "get_active_todos" in todolist_command_names
+
+    # Verify TodoList has inherited commands from Todo
+    parent_command_names = ["close", "reopen", "description", "state"]
+    for cmd_name in parent_command_names:
+        assert (
+            cmd_name in todolist_command_names
+        ), f"Command '{cmd_name}' from Todo not found in TodoList commands"
+
+    # Add a todo and verify its state through CommandExecutor
+    add_action = Action(
+        app_folderpath=app_path,
+        command_key="todo_list.TodoList.add_todo",
+        parameters={"description": "Test inheritance"},
+    )
+    new_todo = todolist_executor.perform_action(add_action)
+
+    # Verify directly (not through CommandExecutor) that TodoList has inherited methods from Todo
+    assert hasattr(new_todo, "close"), "Todo should have close method"
+    assert callable(getattr(new_todo, "close")), "close should be a callable method"
+
+    # Check that we can change the state through normal Python inheritance
+    assert new_todo.state.value == "active"
+    new_todo.close()
+    assert new_todo.state.value == "closed"

@@ -206,6 +206,8 @@ def parse_python_file(
         return {}
 
     commands = {}
+    # Keep track of class inheritance relationships
+    class_bases = {}
 
     # Convert file path to be relative to app_folder_path and create module path
     try:
@@ -223,7 +225,17 @@ def parse_python_file(
         # If relpath fails (e.g. different drives on Windows), use file name only
         module_path = os.path.basename(file_path).replace(".py", "")
 
-    # Find all class definitions and their methods
+    # First pass: find all class definitions and record their inheritance relationships
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.ClassDef):
+            # Collect base classes
+            base_names = []
+            for base in node.bases:
+                if isinstance(base, ast.Name):
+                    base_names.append(base.id)
+            class_bases[node.name] = base_names
+
+    # Second pass: Find all class definitions and their methods
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.ClassDef):
             # Process class methods
@@ -235,6 +247,40 @@ def parse_python_file(
                     commands[command_key] = extract_function_metadata(
                         class_node, module_path
                     )
+
+            # Process inherited commands from base classes
+            base_classes = class_bases.get(node.name, [])
+            for base_class in base_classes:
+                # Find base class in the same file
+                for other_node in ast.iter_child_nodes(tree):
+                    if (
+                        isinstance(other_node, ast.ClassDef)
+                        and other_node.name == base_class
+                    ):
+                        # Process base class methods that have the command decorator
+                        for base_method in ast.iter_child_nodes(other_node):
+                            if isinstance(
+                                base_method, ast.FunctionDef
+                            ) and should_include_function(base_method):
+                                # Don't duplicate if the subclass overrides the method
+                                # Check if the method is already defined in the subclass
+                                is_overridden = False
+                                for class_node in ast.iter_child_nodes(node):
+                                    if (
+                                        isinstance(class_node, ast.FunctionDef)
+                                        and class_node.name == base_method.name
+                                    ):
+                                        is_overridden = True
+                                        break
+
+                                if not is_overridden:
+                                    # Register the command from the base class but associate it with the child class
+                                    command_key = (
+                                        f"{module_path}.{node.name}.{base_method.name}"
+                                    )
+                                    commands[command_key] = extract_function_metadata(
+                                        base_method, module_path
+                                    )
         elif isinstance(node, ast.FunctionDef) and should_include_function(node):
             # Process global functions
             command_key = f"{module_path}.{node.name}"

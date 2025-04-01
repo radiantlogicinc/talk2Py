@@ -377,3 +377,100 @@ class Helper:
 
         # Check that _private_function is not included
         assert "test_command_parser._private_function" not in commands
+
+    def test_parse_inheritance_commands(self, tmp_path):
+        """Test if parse_python_file correctly handles command inheritance between classes."""
+        # Create a temporary Python file with a class hierarchy
+        test_file = tmp_path / "test_inheritance.py"
+        test_file.write_text(
+            '''
+from talk2py import command
+
+class BaseClass:
+    @command
+    def base_method(self, x: int) -> str:
+        """
+        A method in the base class.
+
+        Args:
+            x: An integer parameter
+
+        Returns:
+            A string result
+        """
+        return f"Base: {x}"
+
+    @command
+    def shared_method(self, y: int) -> str:
+        """
+        A method that will be overridden in the child class.
+
+        Args:
+            y: An integer parameter
+
+        Returns:
+            A string result from the base class
+        """
+        return f"Base shared: {y}"
+
+class ChildClass(BaseClass):
+    @command
+    def child_method(self, z: str) -> int:
+        """
+        A method in the child class.
+
+        Args:
+            z: A string parameter
+
+        Returns:
+            An integer result
+        """
+        return len(z)
+
+    @command
+    def shared_method(self, y: int) -> str:
+        """
+        Override of the shared method.
+
+        Args:
+            y: An integer parameter
+
+        Returns:
+            A string result from the child class
+        """
+        return f"Child shared: {y}"
+'''
+        )
+
+        # Parse the file
+        commands = parse_python_file(str(test_file), str(tmp_path))
+
+        # Expected command keys
+        base_method_key = "test_inheritance.BaseClass.base_method"
+        base_shared_key = "test_inheritance.BaseClass.shared_method"
+        child_method_key = "test_inheritance.ChildClass.child_method"
+        child_shared_key = "test_inheritance.ChildClass.shared_method"
+        child_inherited_key = "test_inheritance.ChildClass.base_method"
+
+        # Assert base class methods are found
+        assert base_method_key in commands, "Base class method not found"
+        assert base_shared_key in commands, "Base class shared method not found"
+
+        # Assert child class methods are found
+        assert child_method_key in commands, "Child class method not found"
+        assert child_shared_key in commands, "Child class shared method not found"
+
+        # Assert the inherited method is found in the child class
+        assert (
+            child_inherited_key in commands
+        ), "Inherited method not found in child class"
+
+        # Check that the child's shared_method is its own implementation, not the base's
+        assert (
+            "Override of the shared method" in commands[child_shared_key]["docstring"]
+        )
+
+        # Check that the child's inherited method has the base class's docstring
+        assert (
+            "A method in the base class" in commands[child_inherited_key]["docstring"]
+        )
