@@ -132,6 +132,20 @@ class TodoList(Todo):
         return todo
 
     @talk2py.command
+    def add_todo_using_todo_obj(self, todo_obj: Todo) -> Todo:
+        """Add a new todo item to the list.
+
+        Args:
+            description: The description of the new todo item
+
+        Returns:
+            The newly created Todo instance
+        """
+        todo = Todo(todo_obj.description)
+        self._todos.append(todo)
+        return todo
+
+    @talk2py.command
     def get_todo(self, todo_id: int) -> Todo:
         """Get a todo item by its ID.
 

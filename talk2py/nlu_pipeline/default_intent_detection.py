@@ -103,11 +103,14 @@ class DefaultIntentDetection(IntentDetectionInterface):
             "that's not what i meant",
             "that is not what i meant",
         ]
-        for keyword in feedback_keywords:
-            if keyword in user_message_lower:
-                return "feedback"
-
-        return "query"
+        return next(
+            (
+                "feedback"
+                for keyword in feedback_keywords
+                if keyword in user_message_lower
+            ),
+            "query",
+        )
 
     def classify_intent(
         self, user_input: str, excluded_intents: Optional[List[str]] = None

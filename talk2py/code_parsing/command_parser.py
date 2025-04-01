@@ -94,11 +94,12 @@ def normalize_type_annotation(type_str: str, module_name: Optional[str] = None) 
         "Optional": "optional",
     }
 
-    return (
-        type_str.lower()
-        if type_str.lower() in [k.lower() for k in type_map]
-        else type_str
-    )
+    # Return the lowercase version only if it's a known simple type
+    if type_str.lower() in [k.lower() for k in type_map]:
+        return type_str.lower()
+
+    # Otherwise, return the original string (potential class name)
+    return type_str
 
 
 def extract_type_annotation(

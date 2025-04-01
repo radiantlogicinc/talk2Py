@@ -16,8 +16,7 @@ import pytest
 
 from talk2py import CHAT_CONTEXT, Action
 from talk2py.chat_context import ChatContext
-from talk2py.code_parsing_execution.command_executor import CommandExecutor
-from talk2py.code_parsing_execution.command_registry import CommandRegistry
+from talk2py.code_parsing.command_registry import CommandRegistry
 from talk2py.types import ConversationArtifacts, ConversationEntry
 
 # import fixtures
@@ -45,7 +44,7 @@ def load_class_from_sysmodules(file_path: str, class_name: str) -> Type[Any]:
 
 def test_command_executor_with_context(
     temp_todo_app: dict[str, Path],
-    todolist_executor: CommandExecutor,  # pylint: disable=redefined-outer-name
+    todolist_registry: CommandRegistry,
     _chat_context_reset: Generator[
         None, None, None
     ],  # pylint: disable=redefined-outer-name,unused-argument
@@ -54,8 +53,8 @@ def test_command_executor_with_context(
 
     Args:
         temp_todo_app: Fixture providing test module paths
-        executor_with_todo: Fixture providing configured CommandExecutor
-        reset_global_context: Fixture to reset global context
+        todolist_registry: Fixture providing the registry
+        _chat_context_reset: Fixture to reset global context
     """
     # Initialize todo list (global context)
     app_path = str(temp_todo_app["module_dir"])
@@ -74,7 +73,11 @@ def test_command_executor_with_context(
         command_key="todo_list.TodoList.add_todo",
         parameters={"description": "Test todo"},
     )
-    todo = todolist_executor.perform_action(add_action)
+    add_func = todolist_registry.get_command_func(
+        add_action.command_key, CHAT_CONTEXT.current_object, add_action.parameters
+    )
+    assert add_func is not None
+    todo = add_func()
     assert todo is not None
 
     # Access the Todo by ID rather than the object directly
@@ -86,7 +89,14 @@ def test_command_executor_with_context(
         command_key="todo_list.TodoList.current_todo",
         parameters={"value": todo_id},
     )
-    current_todo = todolist_executor.perform_action(set_current_action)
+    set_current_func = todolist_registry.get_command_func(
+        set_current_action.command_key,
+        CHAT_CONTEXT.current_object,
+        set_current_action.parameters,
+    )
+    assert set_current_func is not None
+    current_todo = set_current_func()
+
     assert current_todo == todo  # Should return the todo object
     assert CHAT_CONTEXT.current_object == todo_list  # Should still be todo_list
 
@@ -99,7 +109,11 @@ def test_command_executor_with_context(
         command_key="todo_list.Todo.close",
         parameters={},
     )
-    todolist_executor.perform_action(close_action)
+    close_func = todolist_registry.get_command_func(
+        close_action.command_key, CHAT_CONTEXT.current_object, close_action.parameters
+    )
+    assert close_func is not None
+    close_func()
 
     # Check todo state (Todo context)
     state_action = Action(
@@ -107,13 +121,17 @@ def test_command_executor_with_context(
         command_key="todo_list.Todo.state",
         parameters={},
     )
-    state = todolist_executor.perform_action(state_action)
+    state_func = todolist_registry.get_command_func(
+        state_action.command_key, CHAT_CONTEXT.current_object, state_action.parameters
+    )
+    assert state_func is not None
+    state = state_func()
     assert str(state) == "TodoState.CLOSED"
 
 
 def test_command_executor_context_switching(
     temp_todo_app: dict[str, Path],
-    todolist_executor: CommandExecutor,  # pylint: disable=redefined-outer-name
+    todolist_registry: CommandRegistry,
     _chat_context_reset: Generator[
         ChatContext, None, None
     ],  # pylint: disable=redefined-outer-name
@@ -122,7 +140,7 @@ def test_command_executor_context_switching(
 
     Args:
         temp_todo_app: Fixture providing test module paths
-        todolist_executor: Fixture providing configured CommandExecutor
+        todolist_registry: Fixture providing the registry
         _chat_context_reset: Fixture providing clean ChatContext instance
     """
     # Initialize todo list (global context)
@@ -142,14 +160,22 @@ def test_command_executor_context_switching(
         command_key="todo_list.TodoList.add_todo",
         parameters={"description": "First todo"},
     )
-    todo1 = todolist_executor.perform_action(add_action1)
+    add_func1 = todolist_registry.get_command_func(
+        add_action1.command_key, CHAT_CONTEXT.current_object, add_action1.parameters
+    )
+    assert add_func1 is not None
+    todo1 = add_func1()
 
     add_action2 = Action(
         app_folderpath=app_path,
         command_key="todo_list.TodoList.add_todo",
         parameters={"description": "Second todo"},
     )
-    todo2 = todolist_executor.perform_action(add_action2)
+    add_func2 = todolist_registry.get_command_func(
+        add_action2.command_key, CHAT_CONTEXT.current_object, add_action2.parameters
+    )
+    assert add_func2 is not None
+    todo2 = add_func2()
 
     # Set current todo to first todo
     set_current_action = Action(
@@ -157,7 +183,13 @@ def test_command_executor_context_switching(
         command_key="todo_list.TodoList.current_todo",
         parameters={"value": todo1.id},
     )
-    current_todo = todolist_executor.perform_action(set_current_action)
+    set_current_func = todolist_registry.get_command_func(
+        set_current_action.command_key,
+        CHAT_CONTEXT.current_object,
+        set_current_action.parameters,
+    )
+    assert set_current_func is not None
+    current_todo = set_current_func()
     assert current_todo == todo1  # Should return the todo object
 
     # Manually set context to todo1 for Todo operations
@@ -170,7 +202,11 @@ def test_command_executor_context_switching(
         command_key="todo_list.Todo.close",
         parameters={},
     )
-    todolist_executor.perform_action(close_action)
+    close_func = todolist_registry.get_command_func(
+        close_action.command_key, CHAT_CONTEXT.current_object, close_action.parameters
+    )
+    assert close_func is not None
+    close_func()
 
     # Switch to second todo
     CHAT_CONTEXT.current_object = todo_list  # Back to TodoList
@@ -179,7 +215,13 @@ def test_command_executor_context_switching(
         command_key="todo_list.TodoList.current_todo",
         parameters={"value": todo2.id},
     )
-    current_todo = todolist_executor.perform_action(set_current_action)
+    set_current_func = todolist_registry.get_command_func(
+        set_current_action.command_key,
+        CHAT_CONTEXT.current_object,
+        set_current_action.parameters,
+    )
+    assert set_current_func is not None
+    current_todo = set_current_func()
     assert current_todo == todo2
 
     # Manually set context to todo2 for Todo operations
@@ -192,111 +234,95 @@ def test_command_executor_context_switching(
         command_key="todo_list.Todo.description",
         parameters={"value": "Updated second todo"},
     )
-    todolist_executor.perform_action(update_action)
+    update_func = todolist_registry.get_command_func(
+        update_action.command_key, CHAT_CONTEXT.current_object, update_action.parameters
+    )
+    assert update_func is not None
+    update_func()
+    assert todo2.description == "Updated second todo"  # Verify directly
 
 
 def test_command_executor_invalid_context(
     temp_todo_app: dict[str, Path],
-    todolist_executor: CommandExecutor,
+    todolist_registry: CommandRegistry,
     _chat_context_reset: Generator[None, None, None],
 ) -> None:
-    """Test error handling when executing commands with invalid contexts."""
+    """Test command execution failure due to invalid context.
+
+    Args:
+        temp_todo_app: Fixture providing test module paths
+        todolist_registry: Fixture providing the registry
+        _chat_context_reset: Fixture to reset global context
+    """
     app_path = str(temp_todo_app["module_dir"])
     CHAT_CONTEXT.register_app(app_path)
-    module_file = str(temp_todo_app["module_file"])
+    CHAT_CONTEXT.current_object = None  # No context object set
 
-    # Try to execute a Todo command with no current object
-    close_action = Action(
+    # Try to call a class method that requires context
+    action = Action(
         app_folderpath=app_path,
         command_key="todo_list.Todo.close",
         parameters={},
     )
 
-    print(f"Before action CHAT_CONTEXT.current_object: {CHAT_CONTEXT.current_object}")
-
-    # Test first scenario - no current object should raise ValueError
-    with pytest.raises(
-        ValueError,
-        match="Command 'todo_list.Todo.close' is not available in the current context",
-    ):
-        todolist_executor.perform_action(close_action)
-
-    # Import the module and get the TodoList class directly
-    todolist_class: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
-    todo_list = todolist_class()
-
-    # Test second scenario - wrong context type should raise TypeError
-    CHAT_CONTEXT.current_object = todo_list
-    with pytest.raises(TypeError):
-        todolist_executor.perform_action(close_action)
+    with pytest.raises(ValueError, match="requires context"):
+        todolist_registry.get_command_func(
+            action.command_key, CHAT_CONTEXT.current_object, action.parameters
+        )
 
 
 def test_command_executor_properties(
     temp_todo_app: dict[str, Path],
-    todolist_executor: CommandExecutor,  # pylint: disable=redefined-outer-name
+    todolist_registry: CommandRegistry,
     _chat_context_reset: Generator[
         ChatContext, None, None
     ],  # pylint: disable=redefined-outer-name
 ) -> None:
-    """Test handling of property getter and setter commands.
+    """Test property getter and setter via command registry.
 
     Args:
         temp_todo_app: Fixture providing test module paths
-        todolist_executor: Fixture providing configured CommandExecutor
+        todolist_registry: Fixture providing the registry
         _chat_context_reset: Fixture providing clean ChatContext instance
     """
-    # Initialize todo list (global context)
     app_path = str(temp_todo_app["module_dir"])
     CHAT_CONTEXT.register_app(app_path)
     module_file = str(temp_todo_app["module_file"])
 
-    # Import the module and get the TodoList class directly
-    todolist_class: Type[Any] = load_class_from_sysmodules(module_file, "TodoList")
-    todo_list = todolist_class()
+    # Import the module and get the Todo class directly
+    todo_class: Type[Any] = load_class_from_sysmodules(module_file, "Todo")
+    todo = todo_class("Initial property test")
 
-    CHAT_CONTEXT.current_object = todo_list
-
-    # Add a todo
-    add_action = Action(
-        app_folderpath=app_path,
-        command_key="todo_list.TodoList.add_todo",
-        parameters={"description": "Property test"},
-    )
-    todo = todolist_executor.perform_action(add_action)
-
-    # Set current todo to the new todo
-    set_current_action = Action(
-        app_folderpath=app_path,
-        command_key="todo_list.TodoList.current_todo",
-        parameters={"value": todo.id},
-    )
-    current_todo = todolist_executor.perform_action(set_current_action)
-    assert current_todo == todo
-
-    # Manually set context to todo for Todo operations
     CHAT_CONTEXT.current_object = todo
-    assert CHAT_CONTEXT.current_object == todo
 
-    # Get description (property getter)
-    get_desc_action = Action(
+    # Get property value
+    get_action = Action(
         app_folderpath=app_path,
         command_key="todo_list.Todo.description",
         parameters={},
     )
-    description = todolist_executor.perform_action(get_desc_action)
-    assert description == "Property test"
+    get_func = todolist_registry.get_command_func(
+        get_action.command_key, CHAT_CONTEXT.current_object, get_action.parameters
+    )
+    assert get_func is not None
+    description = get_func()
+    assert description == "Initial property test"
 
-    # Set description (property setter)
-    set_desc_action = Action(
+    # Set property value
+    set_action = Action(
         app_folderpath=app_path,
         command_key="todo_list.Todo.description",
-        parameters={"value": "Updated property"},
+        parameters={"value": "Updated property test"},
     )
-    todolist_executor.perform_action(set_desc_action)
+    set_func = todolist_registry.get_command_func(
+        set_action.command_key, CHAT_CONTEXT.current_object, set_action.parameters
+    )
+    assert set_func is not None
+    set_func()
 
-    # Get description again to verify update
-    description = todolist_executor.perform_action(get_desc_action)
-    assert description == "Updated property"
+    # Verify the change by getting again
+    description_after_set = get_func()  # Reuse the getter function
+    assert description_after_set == "Updated property test"
 
 
 def test_object_based_property_get(

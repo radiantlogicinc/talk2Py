@@ -40,7 +40,8 @@ class NLUPipelineContext(BaseModel):
     confidence_score: float = 0.0
     # Add fields to store info needed for response refinement on feedback
     last_user_message_for_response: Optional[str] = None
-    last_execution_results_for_response: Optional[dict[str, Any]] = None
+    last_execution_results_for_response: Optional[dict[str, str]] = None
+    execution_results: Optional[dict[str, str]] = None
 
     # New fields for modal interaction
     interaction_mode: Optional[InteractionState] = None

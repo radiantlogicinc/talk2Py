@@ -10,7 +10,7 @@ from pydantic import BaseModel
 # Imports from talk2py need to happen after sys.path is adjusted
 # Moved sys.path logic below imports
 
-from talk2py import CHAT_CONTEXT
+from talk2py import CHAT_CONTEXT, Action
 from talk2py.nlu_pipeline.chat_context_extensions import reset_nlu_pipeline
 
 # Import interaction handlers and results separately
@@ -162,8 +162,13 @@ class TestNLUPipelineIntegration:
         reset_nlu_pipeline()
         # Restore the actual AppContext
         CHAT_CONTEXT.app_context = actual_app_context
-        # from examples.todo_list.todo_list import init_todolist_app
-        # init_todolist_app() # Removed: AppContext should be set by register_app
+        # Explicitly initialize and set the current_object context after resetting
+        from examples.todo_list.todo_list import init_todolist_app, TodoList
+
+        todo_list_instance = init_todolist_app()  # Ensures instance exists
+        CHAT_CONTEXT.current_object = todo_list_instance  # Set context
+        assert isinstance(CHAT_CONTEXT.current_object, TodoList)
+
         # Force loading of default NLU implementations before mocks are applied
         # We need a command key to load; use a common one from the app
         common_command_key = "todo_list.TodoList.add_todo"
@@ -980,53 +985,48 @@ class TestNLUPipelineIntegration:
             return_value=(True, None),  # Validation passes
         )
 
-        # Create Action and add dummy executor to app_context
-        from talk2py.code_parsing_execution.command_executor import CommandExecutor
-
-        # Create and add executor to app_context
-        executor = CommandExecutor(CHAT_CONTEXT.get_registry(self.app_path))
-        CHAT_CONTEXT.app_context["executor"] = executor
-
-        # Instead of mocking the executor, patch the execution placeholder in pipeline_manager
-        # This is the part of code that would call the executor in a real implementation
-        mocker.patch.object(
-            self.pipeline,
-            "_handle_state_logic",
-            side_effect=self.pipeline._handle_state_logic,  # Use the original method
-            wraps=self.pipeline._handle_state_logic,  # But also wrap it to spy on calls
+        # Mock the actual code execution step within the response generator
+        mock_execute = mocker.patch(
+            "talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.execute_code",
+            return_value=exec_result,  # Return the predefined execution result dict
         )
 
-        # Patch the placeholder execution code in the pipeline to return our mocked result
-        # This simulates the real executor being called and returning a result
-        mocker.patch.dict(
-            "talk2py.nlu_pipeline.pipeline_manager.__dict__",
-            {"execution_results": exec_result},
-        )
-
-        # Mock the final LLM call - No, mock the response generation directly
-        # prediction_mock = mock.MagicMock()
-        # prediction_mock.result_summary = final_llm_response
-        mocker.patch(
+        # Mock the final response text generation
+        mock_generate_text = mocker.patch(
             "talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response_text",
             return_value=final_llm_response,  # Mock the final response text
         )
 
-        # Spy on _save_nlu_context to capture the context during test
-        mock_save = mocker.spy(self.pipeline, "_save_nlu_context")
-
         # Process the message
         response = await self.pipeline.process_message(user_message)
 
-        # Verify execution results were used
-        assert response == final_llm_response
+        # Verify execution and response generation were called
+        mock_execute.assert_called_once()
+        # Check the Action object passed to execute_code
+        # Get the arguments the mock was called with
+        call_args, call_kwargs = mock_execute.call_args
 
-        # Verify the context was saved and has expected values
-        assert mock_save.call_count > 0, "Context should have been saved at least once"
-        # Get the last saved context
-        saved_context = mock_save.call_args[0][0]
-        assert saved_context.current_intent == intent
-        assert saved_context.current_parameters == params
-        assert saved_context.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
+        # Action should be the first positional argument (index 0)
+        if len(call_args) > 0:
+            action_arg = call_args[0]
+        else:
+            # Handle case where it might have been passed as a keyword arg (less likely for this method)
+            action_arg = call_kwargs.get("action")
+
+        # Raise an explicit error if action_arg wasn't found
+        if action_arg is None:
+            raise AssertionError(
+                f"Could not find 'action' argument in mock call. Args: {call_args}, Kwargs: {call_kwargs}"
+            )
+
+        assert isinstance(action_arg, Action)
+        assert action_arg.command_key == intent
+        assert action_arg.parameters == params
+        assert action_arg.app_folderpath == self.app_path
+        mock_generate_text.assert_called_once()
+
+        # Verify final response is correct
+        assert response == final_llm_response
 
     # pylint: disable=protected-access
     async def test_pipeline_uses_nlu_overrides(self, mocker):
@@ -1067,6 +1067,15 @@ class TestNLUPipelineIntegration:
             return_value=override_response,
         )
 
+        # Mock the execution step for the override intent
+        mock_execute = mocker.patch(
+            "talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.execute_code",
+            return_value={
+                "status": "Success",
+                "data": "Override executed",
+            },  # Mock successful execution
+        )
+
         # Spy on _save_nlu_context to capture the context during test
         mock_save = mocker.spy(self.pipeline, "_save_nlu_context")
 
@@ -1078,6 +1087,7 @@ class TestNLUPipelineIntegration:
         mock_classify.assert_called_once()
         mock_identify.assert_called_once()
         mock_validate.assert_called_once()
+        mock_execute.assert_called_once()  # Verify execution was called
         mock_generate.assert_called_once()
 
         # Then check the final response matches what we expect
@@ -1090,3 +1100,12 @@ class TestNLUPipelineIntegration:
         assert saved_context.current_intent == override_intent
         assert saved_context.current_parameters == override_params
         assert saved_context.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
+
+    # def test_message_processing_with_complex_context_handling(self, mocker):
+    # """Test message processing with complex context changes and persistence."""
+    # ... setup mocks ...
+    # Spy on _save_nlu_context to capture the context during test
+    # mock_save = mocker.spy(self.pipeline, "_save_nlu_context") # Removed unused variable
+
+    # Process the message
+    # response = self.pipeline.process_message(

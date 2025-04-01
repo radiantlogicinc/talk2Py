@@ -7,7 +7,7 @@ for generating human-readable responses in talk2py.
 import talk2py
 from talk2py.nlu_pipeline.nlu_engine_interfaces import ResponseGenerationInterface
 from typing import Optional
-from talk2py.code_parsing_execution.command_registry import CommandRegistry
+from talk2py.code_parsing.command_registry import CommandRegistry
 
 
 # pylint: disable=too-few-public-methods
@@ -36,29 +36,54 @@ class DefaultResponseGeneration(ResponseGenerationInterface):
         # Use the provided registry or get one based on the action's app_folderpath
         registry = self.command_registry or talk2py.get_registry(action.app_folderpath)
 
-        # Get current context from CHAT_CONTEXT
+        # Get current context from CHAT_CONTEXT, prioritizing it if the command is a class method
         current_context = None
-        if talk2py.CHAT_CONTEXT.current_app_folderpath == action.app_folderpath:
+        is_class_method = action.command_key in registry.command_classes
+
+        if is_class_method:
+            current_context = talk2py.CHAT_CONTEXT.current_object
+            if current_context is None:
+                # Raise error immediately if class method needs context but none is set
+                raise ValueError(
+                    f"Command '{action.command_key}' requires context, but CHAT_CONTEXT.current_object is None."
+                )
+        elif talk2py.CHAT_CONTEXT.current_app_folderpath == action.app_folderpath:
+            # For global functions, only use context if app paths match (optional)
             current_context = talk2py.CHAT_CONTEXT.current_object
 
-        # Assign first, then check if None
-        command_func = registry.get_command_func(
-            action.command_key, current_context, action.parameters
-        )
-        if command_func is not None:
-            result = command_func(**action.parameters)
-            # Convert the result to dict[str, str]
-            if result is None:
-                parsed_result = {"status": "success"}
-            elif isinstance(result, dict):
-                parsed_result = {str(k): str(v) for k, v in result.items()}
-            else:
-                parsed_result = {"result": str(result)}
-            return parsed_result
-        else:  # Explicitly handle the None case
-            raise ValueError(
-                f"Command implementation function not found for command_key '{action.command_key}'"
+        try:
+            # Get the callable function/method (potentially a lambda with processed params)
+            command_func = registry.get_command_func(
+                action.command_key, current_context, action.parameters
             )
+            if command_func is not None:
+                # Execute the command function (which now handles its own parameters)
+                result = command_func()
+            else:
+                # Command function not found by the registry
+                raise ValueError(
+                    f"Command function could not be resolved for key '{action.command_key}'"
+                )
+        except ValueError as e:
+            # Catch specific ValueErrors from get_command_func (context, instantiation)
+            # or from command_func() execution itself (less common).
+            raise ValueError(
+                f"Error executing command '{action.command_key}' with params "
+                f"{action.parameters}. Error: {e}"
+            ) from e
+        except Exception as e:
+            # Catch any other unexpected errors (e.g., TypeError from execution, ImportError, etc.)
+            raise RuntimeError(
+                f"Unexpected error executing command '{action.command_key}'. Error: {e}"
+            ) from e
+
+        # Convert the result to dict[str, str]
+        if result is None:
+            return {"status": "success"}
+        elif isinstance(result, dict):
+            return {str(k): str(v) for k, v in result.items()}
+        else:
+            return {"result": str(result)}
 
     def get_supplementary_prompt_instructions(self, command_key: str) -> str:
         """Return supplementary prompt instructions for aiding response text generation.

@@ -7,25 +7,20 @@ of nested type annotations.
 """
 
 from typing import (
-    TYPE_CHECKING,
     Any,
     Callable,
-    Dict,
-    List,
     Optional,
     Type,
     TypeAlias,
-    Union,
+    # dict, # Removed - built-in type
+    # list, # Removed - built-in type
 )
 
 from pydantic import BaseModel, Field
 
-if TYPE_CHECKING:
-    pass
-
 # Basic value types
-ParamValue = Union[str, bool, int, float]
-ExtendedParamValue = Union[str, bool, int, float, BaseModel]
+ParamValue = str | bool | int | float
+ExtendedParamValue = str | bool | int | float | BaseModel | dict[str, Any] | list[Any]
 
 # Command related type aliases
 CommandMetadata: TypeAlias = dict[str, Any]
@@ -53,8 +48,8 @@ class NLUArtifacts(BaseModel):
 
     state: Optional[str] = None
     intent: Optional[str] = None
-    parameters: Dict[str, Any] = Field(default_factory=dict)
-    excluded_intents: List[str] = Field(default_factory=list)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    excluded_intents: list[str] = Field(default_factory=list)
     confidence_score: float = 0.0
     is_reset: bool = False
 
@@ -62,7 +57,7 @@ class NLUArtifacts(BaseModel):
 class ConversationArtifacts(BaseModel):
     """Model for storing conversation artifacts."""
 
-    data: Dict[str, Optional[ExtendedParamValue]] = Field(default_factory=dict)
+    data: dict[str, Optional[ExtendedParamValue]] = Field(default_factory=dict)
     nlu: Optional[NLUArtifacts] = None
 
 

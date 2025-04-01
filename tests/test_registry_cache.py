@@ -4,6 +4,8 @@ This module contains test cases for the registry caching functionality
 in the ChatContext class.
 """
 
+import os
+
 from talk2py import CHAT_CONTEXT
 
 
@@ -23,7 +25,9 @@ def test_registry_caching(_chat_context_reset, temp_todo_app):
     assert registry1 is registry2
     # CommandRegistry does not have app_path attribute
     # Check metadata dictionary instead
-    assert registry1.command_metadata.get("app_folderpath") == app_path
+    assert os.path.abspath(
+        registry1.command_metadata.get("app_folderpath")
+    ) == os.path.abspath(app_path)
 
 
 def test_registry_cache_persistence(_chat_context_reset, temp_todo_app):
@@ -42,7 +46,9 @@ def test_registry_cache_persistence(_chat_context_reset, temp_todo_app):
     assert registry1 is registry2
     # CommandRegistry does not have app_path attribute
     # Check metadata dictionary instead
-    assert registry1.command_metadata.get("app_folderpath") == app_path
+    assert os.path.abspath(
+        registry1.command_metadata.get("app_folderpath")
+    ) == os.path.abspath(app_path)
 
 
 def test_app_context_structure(_chat_context_reset, todolist_registry):

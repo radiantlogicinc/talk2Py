@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from talk2py.chat_context import ChatContext
-from talk2py.code_parsing_execution.command_registry import CommandRegistry
+from talk2py.code_parsing.command_registry import CommandRegistry
 from talk2py.types import ExtendedParamValue
 
 _env_vars: dict[str, str] = {}  # Initialize the global variable with type annotation

@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional, TypeVar, Type, Union
 
 from pydantic import ValidationError, create_model
 
-from talk2py import CHAT_CONTEXT
+from talk2py import CHAT_CONTEXT, Action
 from talk2py.nlu_pipeline.default_intent_detection import DefaultIntentDetection
 from talk2py.nlu_pipeline.default_param_extraction import DefaultParameterExtraction
 from talk2py.nlu_pipeline.default_response_generation import DefaultResponseGeneration
@@ -231,7 +231,9 @@ class NLUPipelineManager:
         context_data = CHAT_CONTEXT.app_context.get("nlu_context", {})
         try:
             # Use parse_obj for potentially incomplete data during migration
-            return NLUPipelineContext.parse_obj(context_data)
+            # return NLUPipelineContext.parse_obj(context_data)
+            # Use model_validate for Pydantic v2
+            return NLUPipelineContext.model_validate(context_data)
         except ValidationError as e:  # Catch specific validation error
             logger.warning(
                 "Failed to parse stored NLU context: %s. Resetting context.", e
@@ -241,12 +243,21 @@ class NLUPipelineManager:
     def _save_nlu_context(self, context: NLUPipelineContext) -> None:
         """Save NLU context to ChatContext app_context."""
         # Store enum state as string value for better serialization
-        context_dump = context.model_dump()
-        context_dump["current_state"] = context.current_state.value
+        context_dump = context.model_dump(
+            exclude_none=True
+        )  # Use model_dump for Pydantic v2
+        if context.current_state:
+            context_dump["current_state"] = context.current_state.value
+        if context.interaction_mode:
+            context_dump["interaction_mode"] = context.interaction_mode.value
+        # Interaction data needs custom handling if it's a Pydantic model itself
+        if context.interaction_data:
+            context_dump["interaction_data"] = context.interaction_data.model_dump(
+                exclude_none=True
+            )
+
         try:
-            # Convert Pydantic model to dict, handling potential custom types if needed
-            # Using exclude_none=True might be useful to keep saved context clean
-            CHAT_CONTEXT.app_context["nlu_context"] = context.dict(exclude_none=True)
+            CHAT_CONTEXT.app_context["nlu_context"] = context_dump
         except Exception as e:
             logger.error("Failed to serialize NLU context for saving: %s", e)
 
@@ -753,53 +764,53 @@ class NLUPipelineManager:
 
         elif current_state == NLUPipelineState.CODE_EXECUTION:
             # --- Code Execution ---
-            if (
-                not context.current_intent
-            ):  # Added check for parameters removed as they might be optional
-                logger.error("Reached CODE_EXECUTION state without intent.")
-                self._reset_pipeline(context)
-                return "An internal error occurred (missing intent). Resetting."
+            logger.debug("Executing code...")
+            if context.current_intent is None:
+                logger.error("Cannot execute code without a confirmed intent.")
+                self._transition_state(context, NLUPipelineState.INTENT_CLASSIFICATION)
+                response = "I'm not sure what command to execute. Please clarify."
+            else:
+                try:
+                    # Ensure app_folderpath is set
+                    if CHAT_CONTEXT.current_app_folderpath is None:
+                        raise ValueError(
+                            "Internal error: current_app_folderpath is not set in CHAT_CONTEXT."
+                        )
 
-            logger.debug(
-                "Executing code for intent '%s' with params: %s",
-                context.current_intent,
-                context.current_parameters,
-            )
-            # TODO: Replace dummy data with actual execution call
-            # execution_results = await self._execute_command(...) # Replace with actual execution logic
-            try:
-                # Placeholder for where execution would happen
-                # Assume execution logic exists elsewhere, e.g., in CommandExecutor
-                # We need to get the result here. For now, use dummy data.
-                execution_results = {
-                    "status": "Success",
-                    "data": "Executed placeholder.",
-                }
-                logger.info(
-                    "Placeholder code execution complete. Results: %s",
-                    execution_results,
-                )
-            except Exception as e:  # pylint: disable=broad-exception-caught
-                logger.exception("Error during placeholder code execution:")
-                execution_results = {"status": "Error", "error": str(e)}
-            # --- End Remove Dummy Data ---
-            context.last_execution_results_for_response = (
-                execution_results  # Store results
-            )
-
-            # Check execution status - maybe need interaction if it failed? (Future enhancement)
-            if execution_results.get("status") != "Success":
-                logger.warning(
-                    "Code execution failed or reported non-success: %s",
-                    execution_results,
-                )
-                # Handle failure - maybe generate error response or try recovery
-                # For now, proceed to response generation with the failure info
-
-            self._transition_state(context, NLUPipelineState.RESPONSE_TEXT_GENERATION)
-            response = await self._handle_state_logic(
-                user_message, context
-            )  # Recurse carefully
+                    # Construct Action object
+                    action = Action(
+                        app_folderpath=CHAT_CONTEXT.current_app_folderpath,
+                        command_key=context.current_intent,
+                        parameters=context.current_parameters or {},
+                    )
+                    # Execute the code using the ResponseGeneration implementation
+                    logger.info(f"Executing action: {action}")
+                    context.execution_results = resp_impl.execute_code(action)
+                    logger.info(f"Execution result: {context.execution_results}")
+                    # Proceed to generate response text
+                    self._transition_state(
+                        context, NLUPipelineState.RESPONSE_TEXT_GENERATION
+                    )
+                    # Re-run logic for the new state immediately
+                    response = await self._handle_state_logic(user_message, context)
+                except (
+                    ValueError,
+                    TypeError,
+                ) as e:  # Errors during execution setup/call
+                    logger.error(f"Error during code execution phase: {e}")
+                    # Optionally reset or ask user to retry
+                    self._transition_state(
+                        context, NLUPipelineState.INTENT_CLASSIFICATION
+                    )
+                    response = f"I encountered an error trying to run the command: {e}"
+                except RuntimeError as e:  # Unexpected runtime errors from execute_code
+                    logger.error(f"Runtime error during code execution: {e}")
+                    self._transition_state(
+                        context, NLUPipelineState.INTENT_CLASSIFICATION
+                    )
+                    response = (
+                        f"An unexpected error occurred while running the command: {e}"
+                    )
 
         elif current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION:
             # --- Response Generation ---
@@ -815,7 +826,7 @@ class NLUPipelineManager:
                         or context.last_user_message_for_response
                         or "Unknown command"
                     )
-                    exec_res = context.last_execution_results_for_response or {}
+                    exec_res = context.execution_results or {}
                     final_response = resp_impl.generate_response_text(
                         cmd_desc, exec_res
                     )
@@ -828,8 +839,8 @@ class NLUPipelineManager:
                 )
                 # Use a generic response based on execution status if possible
                 status = (
-                    context.last_execution_results_for_response.get("status", "Unknown")
-                    if context.last_execution_results_for_response
+                    context.execution_results.get("status", "Unknown")
+                    if context.execution_results
                     else "Unknown"
                 )
                 if status == "Success":
@@ -852,7 +863,7 @@ class NLUPipelineManager:
                 context.interaction_mode = InteractionState.AWAITING_FEEDBACK
                 context.interaction_data = FeedbackData(
                     response_text=final_response,
-                    execution_results=context.last_execution_results_for_response,
+                    execution_results=context.execution_results,
                     user_input=user_message,  # Add user_input
                 )
                 # State remains RESPONSE_TEXT_GENERATION while awaiting feedback
@@ -864,7 +875,7 @@ class NLUPipelineManager:
                 # State remains RESPONSE_TEXT_GENERATION, ready for the *next* message.
                 response = final_response
                 # Consider clearing transient data like execution results if appropriate here
-                # context.last_execution_results_for_response = None
+                # context.execution_results = None
 
         elif current_state in [
             NLUPipelineState.INTENT_CLARIFICATION,

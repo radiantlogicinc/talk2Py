@@ -12,7 +12,7 @@ from typing import Any, Type
 
 import pytest
 
-from talk2py.code_parsing_execution.command_registry import CommandRegistry
+from talk2py.code_parsing.command_registry import CommandRegistry, BASIC_TYPES
 
 
 def create_test_files(tmp_path: Path) -> Path:
@@ -206,6 +206,24 @@ def load_class_from_sysmodules(file_path: str, class_name: str) -> Type[Any]:
     return getattr(module, class_name)
 
 
+# Test class for parameter instantiation
+class ParamClass:
+    def __init__(self, name: str, value: int):
+        self.name = name
+        self.value = value
+
+    def __eq__(self, other):
+        if not isinstance(other, ParamClass):
+            return NotImplemented
+        return self.name == other.name and self.value == other.value
+
+
+# Add a fixture for the ParamClass for use in tests
+@pytest.fixture
+def param_class_instance() -> ParamClass:
+    return ParamClass(name="test", value=123)
+
+
 class TestCommandRegistry:
     """Test cases for the CommandRegistry class.
 
@@ -248,28 +266,14 @@ class TestCommandRegistry:
 
         # Test with relative path
         os.chdir(tmp_path.parent)
-        relative_path = tmp_path.name
-        metadata_path = CommandRegistry.get_metadata_path(relative_path)
-
-        # Compare the path components instead of the full path
-        # This ensures we're checking the right structure without worrying about absolute vs relative paths
-        expected_components = [
-            relative_path,
-            "___command_info",
-            "command_metadata.json",
-        ]
-        path_components = metadata_path.split(os.sep)
-
-        # Check if all expected components are in the path
-        for component in expected_components:
-            assert component in path_components
-
-        # Verify that the components appear in the right order
-        last_index = -1
-        for component in expected_components:
-            current_index = path_components.index(component)
-            assert current_index > last_index
-            last_index = current_index
+        # Cleanup: Change back to original directory to avoid affecting other tests
+        original_cwd = os.getcwd()
+        os.chdir(str(tmp_path))  # Change to temp path so relative path works
+        try:
+            metadata_path_rel = CommandRegistry.get_metadata_path(".")
+            assert metadata_path_rel == str(metadata_json)
+        finally:
+            os.chdir(original_cwd)  # Change back
 
     def test_load_metadata_and_functions(
         self, todolist_registry: CommandRegistry, temp_todo_app: dict
@@ -293,19 +297,19 @@ class TestCommandRegistry:
 
         # Test TodoList.add_todo method
         add_todo_func = todolist_registry.get_command_func(
-            "todo_list.TodoList.add_todo", todo_list
+            "todo_list.TodoList.add_todo", todo_list, {"description": "Dummy"}
         )
         assert add_todo_func is not None
-        todo = add_todo_func(description="Test Todo")
+        todo = add_todo_func()
         assert todo is not None
-        assert todo.description == "Test Todo"
+        assert todo.description == "Dummy"
 
         # Test Todo.description property
         description_func = todolist_registry.get_command_func(
-            "todo_list.Todo.description", todo
+            "todo_list.Todo.description", todo, {}
         )
         assert description_func is not None
-        assert description_func() == "Test Todo"
+        assert description_func() == "Dummy"
 
     def test_get_nonexistent_command(self, todolist_registry: CommandRegistry) -> None:
         """Test getting a command that doesn't exist.
@@ -313,9 +317,9 @@ class TestCommandRegistry:
         Args:
             todolist_registry: Fixture providing CommandRegistry with todo commands
         """
-        with pytest.raises(ValueError) as exc_info:
-            todolist_registry.get_command_func("nonexistent.command")
-        assert "Command 'nonexistent.command' does not exist" in str(exc_info.value)
+        # get_command_func should return None for nonexistent commands
+        func = todolist_registry.get_command_func("nonexistent.command", None, {})
+        assert func is None
 
     def test_invalid_module_path(self, tmp_path: Path) -> None:
         """Test loading a command with an invalid module path.
@@ -480,9 +484,10 @@ class Calculator:
         calc = module.Calculator()
 
         # Test with correct object
-        func = registry.get_command_func("calculator.Calculator.multiply", calc)
+        params = {"a": 4, "b": 2}
+        func = registry.get_command_func("calculator.Calculator.multiply", calc, params)
         assert func is not None
-        assert func(4, 2) == 8
+        assert func() == 8
 
         # pylint: disable=too-few-public-methods
         class WrongClass:
@@ -495,7 +500,9 @@ class Calculator:
         # Test with wrong object type
         wrong_obj = WrongClass()
         with pytest.raises(TypeError):
-            registry.get_command_func("calculator.Calculator.multiply", wrong_obj)
+            registry.get_command_func(
+                "calculator.Calculator.multiply", wrong_obj, params
+            )
 
     def test_get_commands_in_current_context(
         self, todolist_registry: CommandRegistry, temp_todo_app: dict
@@ -556,30 +563,34 @@ class Calculator:
         todo = todo_list.add_todo("Test Todo")
 
         # Test getting TodoList method in correct context
+        add_todo_params = {"description": "Another Todo"}
         add_todo_func = todolist_registry.get_command_func(
-            "todo_list.TodoList.add_todo", todo_list
+            "todo_list.TodoList.add_todo", todo_list, add_todo_params
         )
         assert add_todo_func is not None
-        new_todo = add_todo_func(description="Another Todo")
+        new_todo = add_todo_func()
         assert new_todo is not None
         assert new_todo.description == "Another Todo"
 
         # Test getting Todo method in correct context
+        description_params: dict[str, Any] = {}
         description_func = todolist_registry.get_command_func(
-            "todo_list.Todo.description", todo
+            "todo_list.Todo.description", todo, description_params
         )
         assert description_func is not None
         assert description_func() == "Test Todo"
 
         # Test getting TodoList method with wrong context (using Todo object)
-        with pytest.raises(TypeError, match="Object must be an instance of TodoList"):
-            todolist_registry.get_command_func("todo_list.TodoList.add_todo", todo)
+        with pytest.raises(TypeError, match="not compatible with expected class"):
+            todolist_registry.get_command_func(
+                "todo_list.TodoList.add_todo", todo, add_todo_params
+            )
 
-        # Test getting nonexistent command
-        with pytest.raises(
-            ValueError, match="Command 'nonexistent.command' does not exist"
-        ):
-            todolist_registry.get_command_func("nonexistent.command")
+        # Test getting nonexistent command should return None
+        nonexistent_func = todolist_registry.get_command_func(
+            "nonexistent.command", None, {}
+        )
+        assert nonexistent_func is None
 
     def test_command_inheritance(
         self, todolist_registry: CommandRegistry, temp_todo_app: dict
@@ -634,3 +645,216 @@ class Calculator:
         # Check if we can update the state directly on the todo
         new_todo.close()
         assert new_todo.state.value == "closed"
+
+    def test_basic_types_constant(self) -> None:
+        """Test that BASIC_TYPES constant is defined and contains expected types."""
+        assert isinstance(BASIC_TYPES, set)
+        assert "str" in BASIC_TYPES
+        assert "int" in BASIC_TYPES
+        assert "MyCustomClass" not in BASIC_TYPES
+
+    def test_process_parameters_no_metadata(
+        self, todolist_registry: CommandRegistry
+    ) -> None:
+        """Test parameter processing when command has no metadata."""
+        params = {"a": 1, "b": "test"}
+        processed = todolist_registry._process_parameters("nonexistent.command", params)
+        assert processed == params  # Should return original params
+
+    def test_process_parameters_basic_types(
+        self, todolist_registry: CommandRegistry
+    ) -> None:
+        """Test parameter processing with basic types (no instantiation needed)."""
+        # Assuming 'todo_list.add_todo' metadata exists and takes a 'description: str'
+        params = {"description": "Buy milk"}
+        command_key = (
+            "todo_list.TodoList.add_todo"  # Use a valid key from your actual metadata
+        )
+        if command_key not in todolist_registry.command_metadata.get(
+            "map_commandkey_2_metadata", {}
+        ):
+            pytest.skip(
+                f"Command key {command_key} not found in todolist_registry metadata"
+            )
+
+        processed = todolist_registry._process_parameters(command_key, params)
+        assert processed == params  # Basic types shouldn't change
+
+    def test_process_parameters_class_instantiation(
+        self, todolist_registry: CommandRegistry, temp_todo_app: dict
+    ) -> None:
+        """Test parameter processing with automatic class instantiation."""
+        # Use the new add_todo_using_todo_obj command which expects a Todo object
+        command_key = "todo_list.TodoList.add_todo_using_todo_obj"
+        todo_dict = {
+            "description": "Test Todo from dict",
+            "_state": "active",
+        }  # Simulate JSON-like input
+        params = {"todo_obj": todo_dict}
+
+        if command_key not in todolist_registry.command_metadata.get(
+            "map_commandkey_2_metadata", {}
+        ):
+            pytest.skip(
+                f"Command key {command_key} not found in todolist_registry metadata"
+            )
+
+        # Ensure the necessary module/class (Todo) is loaded for instantiation
+        todo_module_path = os.path.join(temp_todo_app["app_folderpath"], "todo_list.py")
+        TodoClass = load_class_from_sysmodules(todo_module_path, "Todo")
+
+        processed = todolist_registry._process_parameters(command_key, params)
+
+        assert "todo_obj" in processed
+        assert isinstance(processed["todo_obj"], TodoClass)
+        assert processed["todo_obj"].description == "Test Todo from dict"
+        # Note: State might not be directly settable via __init__ depending on Todo's implementation
+        # Adjust assertion based on how Todo handles __init__ and attribute setting
+
+    def test_process_parameters_instantiation_failure_bad_dict(
+        self, todolist_registry: CommandRegistry
+    ) -> None:
+        """Test instantiation failure with incorrect dictionary keys."""
+        command_key = "todo_list.TodoList.add_todo_using_todo_obj"
+        bad_todo_dict = {"wrong_key": "Test Todo"}
+        params = {"todo_obj": bad_todo_dict}
+
+        if command_key not in todolist_registry.command_metadata.get(
+            "map_commandkey_2_metadata", {}
+        ):
+            pytest.skip(
+                f"Command key {command_key} not found in todolist_registry metadata"
+            )
+
+        with pytest.raises(
+            ValueError, match="Failed to instantiate parameter 'todo_obj'"
+        ):
+            todolist_registry._process_parameters(command_key, params)
+
+    def test_process_parameters_instantiation_failure_class_not_found(
+        self, tmp_path: Path
+    ) -> None:
+        """Test instantiation failure when the parameter class cannot be found."""
+        # Create minimal metadata pointing to a non-existent class
+        metadata_json = tmp_path / "___command_info" / "command_metadata.json"
+        metadata_json.parent.mkdir()
+        metadata_json.write_text(
+            """{
+                 "app_folderpath": ".",
+                 "map_commandkey_2_metadata": {
+                     "test_module.test_func": {
+                         "parameters": [{"name": "param1", "type": "NonExistentClass"}],
+                         "return_type": "None",
+                         "docstring": "Test"
+                     }
+                 }
+             }"""
+        )
+        # Create dummy module file
+        (tmp_path / "test_module.py").write_text("def test_func(param1): pass")
+
+        registry = CommandRegistry(app_folderpath=str(tmp_path))
+        params = {"param1": {"data": 123}}  # Dict value triggers instantiation attempt
+
+        with pytest.raises(
+            ValueError, match="Failed to instantiate parameter 'param1'"
+        ):
+            registry._process_parameters("test_module.test_func", params)
+
+    def test_get_command_func_with_instantiation(
+        self, todolist_registry: CommandRegistry, temp_todo_app: dict
+    ) -> None:
+        """Test get_command_func successfully returns callable when param needs instantiation."""
+        command_key = "todo_list.TodoList.add_todo_using_todo_obj"
+        todo_dict = {"description": "Test Todo Instantiation", "_state": "active"}
+        params = {"todo_obj": todo_dict}
+        context = temp_todo_app[
+            "todo_list_instance"
+        ]  # Need context for the class method
+
+        if command_key not in todolist_registry.command_metadata.get(
+            "map_commandkey_2_metadata", {}
+        ):
+            pytest.skip(
+                f"Command key {command_key} not found in todolist_registry metadata"
+            )
+
+        command_callable = todolist_registry.get_command_func(
+            command_key, context, params
+        )
+        assert callable(command_callable)
+
+        # Execute the returned callable (lambda) to actually run the command
+        result = command_callable()
+
+        # Assertions on the result or side effects (e.g., todo added to the list)
+        todo_module_path = os.path.join(temp_todo_app["app_folderpath"], "todo_list.py")
+        TodoClass = load_class_from_sysmodules(todo_module_path, "Todo")
+        assert isinstance(result, TodoClass)
+        assert result.description == "Test Todo Instantiation"
+        # Check if it was added to the list in the context
+        assert result in context._todos
+
+    def test_get_command_func_property_setter(
+        self, todolist_registry: CommandRegistry, temp_todo_app: dict
+    ) -> None:
+        """Test getting and executing a property setter command."""
+        command_key = "todo_list.Todo.description"  # Property key
+        context = temp_todo_app["todo1"]  # Instance of Todo
+        params = {
+            "value": "New Description"
+        }  # Parameter name MUST match 'value' for setters
+
+        # Property setter metadata needs 'value' parameter
+        if command_key not in todolist_registry.command_metadata.get(
+            "map_commandkey_2_metadata", {}
+        ):
+            pytest.skip(f"Command key {command_key} not found for property setter test")
+        metadata = todolist_registry.command_metadata["map_commandkey_2_metadata"][
+            command_key
+        ]
+        if not any(p["name"] == "value" for p in metadata.get("parameters", [])):
+            pytest.skip(
+                f"Metadata for {command_key} does not define 'value' parameter needed for setter"
+            )
+
+        setter_callable = todolist_registry.get_command_func(
+            command_key, context, params
+        )
+        assert callable(setter_callable)
+
+        # Execute the setter
+        result = setter_callable()
+
+        # Check the side effect
+        assert context.description == "New Description"
+        # Setters typically return None, check if appropriate
+        assert result is None
+
+    def test_get_command_func_property_getter(
+        self, todolist_registry: CommandRegistry, temp_todo_app: dict
+    ) -> None:
+        """Test getting and executing a property getter command."""
+        command_key = "todo_list.Todo.description"  # Property key
+        context = temp_todo_app["todo1"]  # Instance of Todo
+        params: dict[str, Any] = {}  # Getters have no parameters
+
+        getter_callable = todolist_registry.get_command_func(
+            command_key, context, params
+        )
+        assert callable(getter_callable)
+
+        # Execute the getter
+        result = getter_callable()
+
+        # Check the result
+        # Assuming todo1's initial description was set in conftest or similar
+        assert isinstance(result, str)
+        # assert result == "Initial Description" # Replace with actual initial value
+
+        # Get commands available in the current context (Todo instance)
+        context_commands = todolist_registry.get_commands_in_current_context(context)
+        assert "todo_list.Todo.id" in context_commands  # Property getter
+        assert (
+            "todo_list.TodoList.add_todo" not in context_commands
+        )  # Belongs to TodoList

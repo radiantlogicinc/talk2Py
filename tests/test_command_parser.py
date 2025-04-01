@@ -8,7 +8,7 @@ import os
 from typing import Any, Optional
 
 from talk2py import command
-from talk2py.code_parsing_execution.command_parser import (
+from talk2py.code_parsing.command_parser import (
     extract_function_metadata,
     extract_type_annotation,
     is_command_decorated,
@@ -194,6 +194,17 @@ class TestCommandParser:
         assert "list" in extract_type_annotation(list_annotation).lower()
         assert "dict" in extract_type_annotation(dict_annotation).lower()
         assert "optional" in extract_type_annotation(optional_annotation).lower()
+
+        # Test class types
+        code = "class MyClass: pass\ndef test_func(a: MyClass, b: 'AnotherClass') -> None: pass"
+        tree = ast.parse(code)
+        func_def = tree.body[1]  # Function definition is the second element
+
+        class_annotation = func_def.args.args[0].annotation
+        str_class_annotation = func_def.args.args[1].annotation
+
+        assert extract_type_annotation(class_annotation) == "MyClass"
+        assert extract_type_annotation(str_class_annotation) == "AnotherClass"
 
         # Test None annotation
         assert extract_type_annotation(None) == "any"
