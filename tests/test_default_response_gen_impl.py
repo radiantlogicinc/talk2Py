@@ -5,67 +5,128 @@ from unittest import mock
 
 import pytest
 
+from talk2py import Action
 from talk2py.nlu_pipeline.default_response_generation import DefaultResponseGeneration
 
 
 @pytest.fixture
 def mock_env_vars():
-    """Set up mock environment variables for testing."""
-    with mock.patch.dict(
-        os.environ, {"LLM": "openai/gpt-3.5-turbo", "LITELLM_API_KEY": "test-key"}
-    ):
+    """Fixture to mock environment variables (if needed, otherwise remove)."""
+    with mock.patch.dict(os.environ, {"TEST_VAR": "test_value"}):
         yield
 
 
-@pytest.fixture
-def mock_dspy_predict():
-    """Mock DSPy's Predict class."""
-    with mock.patch("dspy.Predict") as mock_predict:
-        # Configure the mock to return a prediction object
-        prediction = mock.MagicMock()
-        prediction.result_summary = "Generated response"
-        mock_predict.return_value.return_value = prediction
-        yield mock_predict
+# Fixture for mocking dspy.Predict (removed as dspy isn't used)
+# @pytest.fixture
+# def mock_dspy_predict():
+#     """Fixture to mock dspy.Predict."""
+#     with mock.patch("dspy.Predict") as mock_predict:
+#         # Configure mock behavior if needed (e.g., return value)
+#         mock_predict.return_value.return_value = mock.Mock(generated_response="Generated response")
+#         yield mock_predict
 
 
-# pylint: disable=redefined-outer-name
-def test_generate_response_success(
-    mock_env_vars, mock_dspy_predict
-):  # pylint: disable=unused-argument
+def test_generate_response_text_success():
     """Test successful response generation."""
     response_gen = DefaultResponseGeneration()
     command = "add 2 and 3"
-    execution_results = {"result": "5"}
+    execution_results = {"status": "success", "message": "Result is 5"}
 
-    response = response_gen.generate_response(command, execution_results)
+    response = response_gen.generate_response_text(command, execution_results)
 
-    assert response == "Generated response"
-    mock_dspy_predict.assert_called_once_with(
-        "command, execution_results -> result_summary"
-    )
-    mock_dspy_predict.return_value.assert_called_once_with(
-        command=command, execution_results=execution_results
-    )
+    expected_response = "Command 'add 2 and 3' executed successfully. Result is 5"
+    assert response == expected_response
 
 
-def test_generate_response_missing_env_vars():
-    """Test response generation with missing environment variables."""
+def test_generate_response_text_failure_with_message():
+    """Test failure response generation with a specific message."""
     response_gen = DefaultResponseGeneration()
-    command = "add 2 and 3"
-    execution_results = {"result": "5"}
+    command = "divide by zero"
+    execution_results = {"status": "error", "message": "Division by zero"}
 
-    with mock.patch.dict(os.environ, {}, clear=True):  # Clear all env vars
-        with pytest.raises(Exception):
-            response_gen.generate_response(command, execution_results)
+    response = response_gen.generate_response_text(command, execution_results)
+    expected_response = "Command 'divide by zero' failed. Error: Division by zero"
+    assert response == expected_response
 
 
-# pylint: disable=redefined-outer-name
-def test_generate_response_dspy_error(mock_env_vars):  # pylint: disable=unused-argument
-    """Test handling of DSPy errors."""
+def test_generate_response_text_failure_unknown_error():
+    """Test failure response generation with no specific message."""
     response_gen = DefaultResponseGeneration()
-    command = "add 2 and 3"
-    execution_results = {"result": "5"}
+    command = "unknown command"
+    execution_results = {"status": "error"}
 
-    with mock.patch("dspy.Predict", side_effect=Exception("DSPy error")):
-        with pytest.raises(Exception, match="DSPy error"):
-            response_gen.generate_response(command, execution_results)
+    response = response_gen.generate_response_text(command, execution_results)
+    expected_response = "Command 'unknown command' failed. Error: Unknown error"
+    assert response == expected_response
+
+
+def test_get_supplementary_prompt_instructions():
+    """Test getting supplementary prompt instructions."""
+    response_gen = DefaultResponseGeneration()
+    result = response_gen.get_supplementary_prompt_instructions("test.command")
+
+    # Default implementation returns an empty string
+    assert result == ""
+
+
+@pytest.fixture
+def mock_registry():
+    """Create a mock registry for testing."""
+    registry = mock.MagicMock()
+    command_func = mock.MagicMock()
+    command_func.return_value = {"result": "command executed"}
+    registry.get_command_func.return_value = command_func
+    return registry
+
+
+def test_execute_code_success(mock_registry):
+    """Test successful execution of a command."""
+    response_gen = DefaultResponseGeneration()
+    response_gen.command_registry = mock_registry
+
+    action = mock.MagicMock(spec=Action)
+    action.command_key = "test.command"
+    action.parameters = {"param1": "value1"}
+    action.app_folderpath = "/mock/app/path"
+
+    result = response_gen.execute_code(action)
+
+    assert result == {"result": "command executed"}
+    mock_registry.get_command_func.assert_called_once_with(
+        action.command_key, None, action.parameters
+    )
+
+
+def test_execute_code_no_command_func():
+    """Test execute_code when no command function is found."""
+    response_gen = DefaultResponseGeneration()
+    mock_registry = mock.MagicMock()
+    mock_registry.get_command_func.return_value = None
+    response_gen.command_registry = mock_registry
+
+    action = mock.MagicMock(spec=Action)
+    action.command_key = "test.command"
+    action.parameters = {"param1": "value1"}
+    action.app_folderpath = "/mock/app/path"
+
+    with pytest.raises(ValueError, match="Command implementation function not found"):
+        response_gen.execute_code(action)
+
+
+def test_execute_code_none_result():
+    """Test execute_code when command function returns None."""
+    response_gen = DefaultResponseGeneration()
+    mock_registry = mock.MagicMock()
+    command_func = mock.MagicMock()
+    command_func.return_value = None
+    mock_registry.get_command_func.return_value = command_func
+    response_gen.command_registry = mock_registry
+
+    action = mock.MagicMock(spec=Action)
+    action.command_key = "test.command"
+    action.parameters = {"param1": "value1"}
+    action.app_folderpath = "/mock/app/path"
+
+    result = response_gen.execute_code(action)
+
+    assert result == {"status": "success"}

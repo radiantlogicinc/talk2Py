@@ -5,9 +5,10 @@ This module provides the ChatContext class which manages the current application
 context and registry caching for the talk2py framework.
 """
 
-import hashlib
-import pickle
+import json
+import importlib
 import sys
+import murmurhash  # type: ignore # Missing library stubs
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypeAlias
@@ -23,20 +24,6 @@ from talk2py.types import (
 )
 
 RegistryCache: TypeAlias = dict[str, CommandRegistry]
-
-
-def murmurhash(text: str) -> str:
-    """Generate a deterministic hash using MurmurHash algorithm.
-
-    Args:
-        text: Input text to hash
-
-    Returns:
-        Hexadecimal string representation of the hash
-    """
-    # Use hashlib's md5 as a simple substitute for murmurhash
-    # In a real implementation, we might want to use a dedicated murmurhash library
-    return hashlib.md5(text.encode()).hexdigest()
 
 
 @dataclass
@@ -224,7 +211,9 @@ class ChatContext:
 
         # Generate session ID using murmurhash with the format '<app_folderpath>/<user_id>'
         session_key = f"{self._current_app_folderpath}/{self._user_id}"
-        return murmurhash(session_key)
+        # Use murmurhash library directly
+        hash_value = murmurhash.hash(session_key.encode())
+        return hex(hash_value)
 
     def _get_session_storage_path(self, session_id: Optional[str] = None) -> Path:
         """Get the path to store session data.
@@ -287,6 +276,7 @@ class ChatContext:
         return str(history_path)
 
     def load_conversation_history(self, session_id: Optional[str] = None) -> None:
+        # sourcery skip: class-extract-method
         """Load conversation history from disk using Rdict.
 
         Args:
@@ -392,16 +382,17 @@ class ChatContext:
         self.app_context = new_context
 
     def save_current_object(self, session_id: Optional[str] = None) -> str:
-        """Save current object to disk using pickle.
+        """Save current object's state to disk using JSON.
 
         Args:
             session_id: Optional session ID to use. If None, uses current session ID.
 
         Returns:
-            Path to the saved file
+            Path to the saved JSON state file.
 
         Raises:
-            ValueError: If no current application folder path is set or no current object
+            ValueError: If no current application folder path is set or no current object.
+            TypeError: If the current object's state cannot be serialized to JSON.
         """
         if self._current_app_folderpath is None:
             raise ValueError("No current application folder path is set")
@@ -410,41 +401,107 @@ class ChatContext:
             raise ValueError("No current object to save")
 
         storage_path = self._get_session_storage_path(session_id)
-        object_path = storage_path / "current_object.pickle"
-
-        # Save using pickle for complex objects
-        with open(object_path, "wb") as f:
-            pickle.dump(self.current_object, f)
-
-        # Save object class name for reference
-        object_class = self.current_object.__class__.__name__
+        object_state_path = storage_path / "current_object_state.json"
         object_info_path = storage_path / "current_object_info.rdict"
 
-        # Create and save the Rdict
-        object_info = Rdict(str(object_info_path))
-        object_info["class_name"] = object_class
+        # Prepare object state for JSON serialization
+        try:
+            # Check if the object is a dictionary type
+            if isinstance(self.current_object, dict):
+                object_state = self.current_object
+                object_class_name = "dict"
+                object_module_name = "builtins"
+            else:
+                # Using vars() for objects with __dict__ attribute
+                object_state = vars(self.current_object)
+                object_class_name = self.current_object.__class__.__name__
+                object_module_name = self.current_object.__class__.__module__
 
-        return str(object_path)
+            # Ensure the state itself is JSON serializable
+            json.dumps(object_state)
+        except TypeError as e:
+            raise TypeError(
+                f"Current object state is not JSON serializable: {e}"
+            ) from e
+
+        # Save state using JSON
+        with open(object_state_path, "w", encoding="utf-8") as f:
+            json.dump(object_state, f, indent=4)
+
+        # Save object class name and module for reconstruction
+        # Create and save the Rdict for metadata
+        object_info = Rdict(str(object_info_path))
+        object_info["class_name"] = object_class_name
+        object_info["module_name"] = object_module_name
+
+        return str(object_state_path)
 
     def load_current_object(self, session_id: Optional[str] = None) -> None:
-        """Load current object from disk using pickle.
+        """Load current object from disk using JSON state and class info.
 
         Args:
             session_id: Optional session ID to use. If None, uses current session ID.
 
         Raises:
-            ValueError: If no current application folder path is set
-            FileNotFoundError: If the current object file doesn't exist
+            ValueError: If no current application folder path is set.
+            FileNotFoundError: If the current object state or info file doesn't exist.
+            ImportError: If the object's class cannot be imported.
+            Exception: If object instantiation or state restoration fails.
         """
         storage_path = self._get_session_storage_path(session_id)
-        object_path = storage_path / "current_object.pickle"
+        object_state_path = storage_path / "current_object_state.json"
+        object_info_path = storage_path / "current_object_info.rdict"
 
-        if not object_path.exists():
-            raise FileNotFoundError(f"Current object file not found: {object_path}")
+        if not object_state_path.exists():
+            raise FileNotFoundError(
+                f"Current object state file not found: {object_state_path}"
+            )
+        if not object_info_path.exists():
+            raise FileNotFoundError(
+                f"Current object info file not found: {object_info_path}"
+            )
 
-        # Load using pickle
-        with open(object_path, "rb") as f:
-            current_object = pickle.load(f)
+        # Load object metadata
+        object_info = Rdict(str(object_info_path))
+        class_name = object_info.get("class_name")
+        module_name = object_info.get("module_name")
+
+        if not class_name or not module_name:
+            raise ValueError("Class name or module name missing in object info file.")
+
+        # Load state using JSON
+        with open(object_state_path, "r", encoding="utf-8") as f:
+            object_state = json.load(f)
+
+        # Special case for dictionary objects
+        if class_name == "dict" and module_name == "builtins":
+            self.current_object = object_state
+            return
+
+        try:
+            # Dynamically import the module and get the class
+            module = importlib.import_module(module_name)
+            obj_class = getattr(module, class_name)
+        except (ImportError, AttributeError) as e:
+            raise ImportError(
+                f"Failed to import class {class_name} from module {module_name}: {e}"
+            ) from e
+
+        try:
+            # Instantiate the object (assuming a constructor that doesn't require arguments
+            # or can be called without arguments for initial creation)
+            # If the constructor needs args, this approach needs refinement.
+            current_object = obj_class()
+
+            # Restore the state by updating the object's __dict__
+            # This might overwrite methods or properties if keys clash.
+            # A safer approach might involve a dedicated `__setstate__` or update method.
+            current_object.__dict__.update(object_state)
+
+        except Exception as e:
+            raise Exception(
+                f"Failed to instantiate or restore state for object {class_name}: {e}"
+            ) from e
 
         # Set as current object
         self.current_object = current_object
@@ -467,17 +524,21 @@ class ChatContext:
             raise ValueError("No current application folder path is set")
 
         session_id = session_id or self.current_session_id
-        paths = {}
-
-        # Save conversation history
-        paths["conversation_history"] = self.save_conversation_history(session_id)
+        paths = {"conversation_history": self.save_conversation_history(session_id)}
 
         # Save context data
         paths["context_data"] = self.save_context_data(session_id)
 
         # Save current object if it exists
         if self.current_object is not None:
-            paths["current_object"] = self.save_current_object(session_id)
+            try:
+                paths["current_object"] = self.save_current_object(session_id)
+            except TypeError as e:
+                print(
+                    f"Warning: Could not save current object due to non-JSON serializable state: {e}"
+                )
+                if "current_object" in paths:
+                    del paths["current_object"]
 
         # Save session info
         storage_path = self._get_session_storage_path(session_id)
@@ -533,20 +594,63 @@ class ChatContext:
         if "user_id" in session_info:
             self._user_id = session_info["user_id"]
 
-        # Load each component
-        results = {}
-
         # Load conversation history
         self.load_conversation_history(session_id)
-        results["conversation_history"] = True
-
         # Load context data
         self.load_context_data(session_id)
-        results["context_data"] = True
-
         # Load current object
         self.load_current_object(session_id)
-        results["current_object"] = True
+
+        results: Dict[str, bool] = {}
+
+        # Load session info
+        saved_components: List[Any]
+        raw_saved_components = session_info.get("saved_components")
+        if isinstance(raw_saved_components, list):
+            saved_components = raw_saved_components
+        else:
+            # If not a list (or None), default to an empty list
+            saved_components = []
+            # Optionally log a warning if raw_saved_components was not None but also not a list
+
+        # Load conversation history
+        try:
+            if "conversation_history" in saved_components:
+                self.load_conversation_history(session_id)
+                results["conversation_history"] = True
+            else:
+                results["conversation_history"] = False
+        except FileNotFoundError:
+            results["conversation_history"] = False
+            print(
+                f"Warning: Conversation history file not found for session {session_id}"
+            )
+
+        # Load context data
+        try:
+            if "context_data" in saved_components:
+                self.load_context_data(session_id)
+                results["context_data"] = True
+            else:
+                results["context_data"] = False
+        except FileNotFoundError:
+            results["context_data"] = False
+            print(f"Warning: Context data file not found for session {session_id}")
+
+        # Load current object
+        try:
+            if "current_object" in saved_components:
+                self.load_current_object(session_id)
+                results["current_object"] = True
+            else:
+                results["current_object"] = False
+                self.current_object = None
+        except (FileNotFoundError, ImportError, ValueError, Exception) as e:
+            results["current_object"] = False
+            print(
+                f"Warning: Failed to load current object for session {session_id}: {e}"
+            )
+            self.current_object = None
 
         return results
 
@@ -586,4 +690,6 @@ class ChatContext:
 
         # Generate session ID using murmurhash with the format '<app_folderpath>/<user_id>'
         session_key = f"{self._current_app_folderpath}/{user_id}"
-        return murmurhash(session_key)
+        # Use murmurhash library directly
+        hash_value = murmurhash.hash(session_key.encode())
+        return hex(hash_value)

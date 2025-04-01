@@ -1,14 +1,50 @@
 """Natural Language Understanding (NLU) engine interfaces for talk2py.
 
 This module defines abstract interfaces for NLU engine components:
+- IntentDetectionInterface: For classifying and clarifying user intent from message
 - ParameterExtractionInterface: For extracting and validating command parameters
 - ResponseGenerationInterface: For generating human-readable responses based on command execution
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, Tuple, List
+from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
+
+import talk2py
+
+
+# pylint: disable=too-few-public-methods
+class IntentDetectionInterface(ABC):
+    """Interface that defines intent detection methods"""
+
+    @abstractmethod
+    def categorize_user_message(self, user_message: str) -> str:
+        """Categorize user message as 'query', 'feedback', or 'abort'.
+
+        Default implementation should return 'query'.
+        """
+        ...  # pylint: disable=unnecessary-ellipsis # Implementations should override this
+
+    @abstractmethod
+    def classify_intent(
+        self, user_input: str, excluded_intents: Optional[List[str]] = None
+    ) -> Tuple[str, float]:
+        """Classify user intent, returning the intent name and confidence score.
+
+        Default implementation should return ('unknown', 0.0).
+        """
+        ...  # pylint: disable=unnecessary-ellipsis # Implementations should override this
+
+    @abstractmethod
+    def clarify_intent(
+        self, user_input: str, possible_intents: List[Tuple[str, float]]
+    ) -> Optional[str]:
+        """Clarify ambiguous intents, returning the selected intent or None if clarification needed.
+
+        Default implementation should return the highest confidence intent or None.
+        """
+        ...  # pylint: disable=unnecessary-ellipsis # Implementations should override this
 
 
 # pylint: disable=too-few-public-methods
@@ -29,14 +65,12 @@ class ParameterExtractionInterface(ABC):
         """
 
     @abstractmethod
-    def identify_parameters(
-        self, user_input: str, intent: str
-    ) -> Dict[str, Any]:
+    def identify_parameters(self, user_input: str, intent: str) -> Dict[str, Any]:
         """Extract parameters from user input for the given intent.
 
         Default implementation should return an empty dict.
         """
-        pass  # Implementations should override this
+        ...  # pylint: disable=unnecessary-ellipsis # Implementations should override this
 
 
 # pylint: disable=too-few-public-methods
@@ -44,42 +78,20 @@ class ResponseGenerationInterface(ABC):
     """Interface that defines response generation methods"""
 
     @abstractmethod
-    def generate_response(
+    def execute_code(self, action: talk2py.Action) -> dict[str, str]:
+        """Execute the command specified by the action."""
+
+    @abstractmethod
+    def get_supplementary_prompt_instructions(self, command_key: str) -> str:
+        """Return supplementary prompt instructions for aiding response text generation"""
+
+    @abstractmethod
+    def generate_response_text(
         self,
         command: str,
         execution_results: dict[str, str],
     ) -> str:
-        """generate a human readable response based on command execution results"""
-
-    @abstractmethod
-    def categorize_user_message(
-        self, user_message: str
-    ) -> str:
-        """Categorize user message as 'query', 'feedback', or 'abort'.
-
-        Default implementation should return 'query'.
-        """
-        pass # Implementations should override this
-
-    @abstractmethod
-    def classify_intent(
-        self, user_input: str, excluded_intents: Optional[List[str]] = None
-    ) -> Tuple[str, float]:
-        """Classify user intent, returning the intent name and confidence score.
-
-        Default implementation should return ('unknown', 0.0).
-        """
-        pass # Implementations should override this
-
-    @abstractmethod
-    def clarify_intent(
-        self, user_input: str, possible_intents: List[Tuple[str, float]]
-    ) -> Optional[str]:
-        """Clarify ambiguous intents, returning the selected intent or None if clarification needed.
-
-        Default implementation should return the highest confidence intent or None.
-        """
-        pass # Implementations should override this
+        """generate a human readable response text based on command execution results"""
 
 
 # class CommandRouterInterface(ABC):

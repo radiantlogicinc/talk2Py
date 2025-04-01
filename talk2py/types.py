@@ -6,12 +6,22 @@ used throughout the talk2py framework to ensure type consistency and reduce comp
 of nested type annotations.
 """
 
-from typing import TYPE_CHECKING, Any, Callable, Optional, Type, TypeAlias, Union, List, Dict
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Type,
+    TypeAlias,
+    Union,
+)
 
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    from talk2py.code_parsing_execution.command_registry import CommandRegistry
+    pass
 
 # Basic value types
 ParamValue = Union[str, bool, int, float]
@@ -40,12 +50,14 @@ class ContextDict(BaseModel):
 # Define NLUArtifacts first
 class NLUArtifacts(BaseModel):
     """Model for storing NLU pipeline artifacts."""
+
     state: Optional[str] = None
     intent: Optional[str] = None
     parameters: Dict[str, Any] = Field(default_factory=dict)
     excluded_intents: List[str] = Field(default_factory=list)
     confidence_score: float = 0.0
     is_reset: bool = False
+
 
 class ConversationArtifacts(BaseModel):
     """Model for storing conversation artifacts."""

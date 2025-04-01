@@ -1,123 +1,163 @@
 """Integration tests for the NLU Pipeline using the todo_list example."""
 
-import pytest
 import os
 import sys
-from pathlib import Path
-from unittest import mock # Import mock
-import asyncio # Import asyncio
+from typing import Any, List, Optional, Tuple, Dict
+
+import pytest
+from pydantic import BaseModel
+
+# Imports from talk2py need to happen after sys.path is adjusted
+# Moved sys.path logic below imports
+
+from talk2py import CHAT_CONTEXT
+from talk2py.nlu_pipeline.chat_context_extensions import reset_nlu_pipeline
+
+# Import interaction handlers and results separately
+from talk2py.nlu_pipeline.interaction_handlers import (
+    ClarificationHandler,
+    InteractionResult,
+    ValidationHandler,
+)
+
+# Correctly import interaction models
+from talk2py.nlu_pipeline.interaction_models import (
+    ClarificationData,
+    FeedbackData,
+    ValidationData,
+)
+
+# Explicitly import NLUPipelineContext from models
+from talk2py.nlu_pipeline.models import (
+    InteractionState,
+    NLUPipelineContext,
+    NLUPipelineState,
+)
+
+# Import base classes for NLU overrides
+from talk2py.nlu_pipeline.nlu_engine_interfaces import (
+    IntentDetectionInterface,
+    ParameterExtractionInterface,
+    ResponseGenerationInterface,
+)
+from talk2py.nlu_pipeline.pipeline_manager import NLUPipelineManager
 
 # Ensure the project root is in sys.path for imports
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from talk2py import CHAT_CONTEXT
-from talk2py.nlu_pipeline.pipeline_manager import NLUPipelineManager
-# Explicitly import NLUPipelineContext from models
-from talk2py.nlu_pipeline.models import NLUPipelineState, NLUPipelineContext
-from talk2py.nlu_pipeline.chat_context_extensions import get_nlu_context, reset_nlu_pipeline, set_nlu_context
-from talk2py.types import ConversationArtifacts
-# Correctly import interaction models
-from talk2py.nlu_pipeline.interaction_models import BaseInteractionData, ClarificationData, ValidationData, FeedbackData
-# Import interaction handlers and results separately
-from talk2py.nlu_pipeline.interaction_handlers import (
-    InteractionState, InteractionResult,
-    ClarificationHandler, ValidationHandler, FeedbackHandler
-)
-# Import base classes for NLU overrides
-from talk2py.nlu_pipeline.nlu_engine_interfaces import ParameterExtractionInterface, ResponseGenerationInterface
-from talk2py.nlu_pipeline.models import NLUPipelineContext # Ensure context is imported if needed here
-from pydantic import BaseModel
-from typing import Any, Dict, List, Optional, Tuple # Ensure necessary types are imported
 
 # Dummy NLU Override Implementations for testing
 # Need to implement all abstract methods from the interfaces
 
+
 class MockParamExtractor(ParameterExtractionInterface):
     """Mock implementation for ParameterExtractionInterface"""
-    async def identify_parameters(self, user_input: str, context: NLUPipelineContext) -> dict:
+
+    def identify_parameters(self, user_input: str, intent: str) -> Dict[str, Any]:
         # Simple mock: Return fixed params if intent is the override intent
-        if context.current_intent == "override.intent":
+        if intent == "override.intent":
             return {"override_param": "value_from_override"}
         return {}
 
-    async def validate_parameters(self, parameters: dict, context: NLUPipelineContext) -> tuple[bool, str | None]:
+    def validate_parameters(
+        self, cmd_parameters: BaseModel
+    ) -> tuple[bool, Optional[str]]:
         # Simple mock: Always valid for the override intent
-        if context.current_intent == "override.intent":
-            # Assume parameters structure is okay for mock
+        if (
+            hasattr(cmd_parameters, "intent")
+            and cmd_parameters.intent == "override.intent"
+        ):
             return (True, None)
-        # Need conversion if parameters is not BaseModel, adjust test or mock if needed
-        # For simplicity, assume it works or adjust the interface/mock structure
         return (False, "Validation failed for non-override intent")
 
-    # Must implement other abstract methods even if not used in test
     def get_supplementary_prompt_instructions(self, command_key: str) -> str:
         return "Mock supplementary instructions"
 
+
 class MockResponseGenerator(ResponseGenerationInterface):
     """Mock implementation for ResponseGenerationInterface"""
-    async def classify_intent(self, user_input: str, context: NLUPipelineContext, excluded_intents: Optional[List[str]] = None) -> List[Tuple[str, float]]:
-        # Simple mock: Always return a specific intent if the message contains 'override'
-        # Note: Interface signature differs slightly from original mock (context added)
-        if "override" in user_input.lower():
-            return [("override.intent", 0.99)]
-        return [("default.intent", 0.5)] # Fallback
 
-    async def generate_response(self, context: NLUPipelineContext, execution_results: dict | None = None) -> str:
-        # Simple mock: Return fixed response if intent is the override intent
-        # Note: Interface signature differs slightly (context instead of command, added exec_results)
-        if context.current_intent == "override.intent":
+    def execute_code(self, action: Any) -> dict[str, str]:
+        """Execute the command specified by the action."""
+        return {"result": "mock execution result"}
+
+    def get_supplementary_prompt_instructions(self, command_key: str) -> str:
+        """Return supplementary prompt instructions for aiding response text generation."""
+        return "Mock supplementary instructions"
+
+    def generate_response_text(
+        self, command: str, execution_results: dict[str, str]
+    ) -> str:
+        # Simple mock: Return fixed response if intent is in the command
+        if "override.intent" in command:
             return "Response generated by override implementation"
         return "Default response"
 
-    # Must implement other abstract methods even if not used in test
-    def categorize_user_message(self, user_message: str) -> str:
-        return 'query' # Default mock behavior
 
-    # Re-adding clarify_intent as it seems to be required by the interface after all
+# Add new mock class for intent detection
+class MockIntentDetection(IntentDetectionInterface):
+    """Mock implementation for IntentDetectionInterface"""
+
+    # pylint: disable=unused-argument
+    def categorize_user_message(self, user_message: str) -> str:
+        """Categorize user message as 'query', 'feedback', or 'abort'."""
+        return "query"  # Default mock behavior
+
+    def classify_intent(
+        self, user_input: str, excluded_intents: Optional[List[str]] = None
+    ) -> Tuple[str, float]:
+        """Classify user intent, returning the intent name and confidence score."""
+        # Simple mock: Always return a specific intent if the message contains 'override'
+        if "override" in user_input.lower():
+            return ("override.intent", 0.99)
+        return ("default.intent", 0.5)  # Fallback
+
+    # pylint: disable=unused-argument
     def clarify_intent(
         self, user_input: str, possible_intents: List[Tuple[str, float]]
     ) -> Optional[str]:
-        """Mock implementation for clarify_intent."""
+        """Clarify ambiguous intents, returning the selected intent or None if clarification needed."""
         # Simple mock: just return the first intent if available
         return possible_intents[0][0] if possible_intents else None
 
-# Fixtures from conftest.py will be automatically used: 
+
+# Fixtures from conftest.py will be automatically used:
 # temp_todo_app, todolist_registry, todolist_executor, _chat_context_reset
 
-@pytest.mark.asyncio # Mark class for asyncio tests
+
+@pytest.mark.asyncio  # Mark class for asyncio tests
 @pytest.mark.usefixtures("_chat_context_reset", "temp_todo_app")
 class TestNLUPipelineIntegration:
     """Test suite for NLU pipeline integration with the todo_list app."""
 
+    pipeline: NLUPipelineManager
+    app_path: str
+
+    # pylint: disable=unused-argument, import-outside-toplevel
     def setup_method(self, method):
         """Set up the test method by getting the pipeline manager."""
         # Initialization of app state/objects if needed, but not ChatContext registration
         from examples.todo_list.todo_list import init_todolist_app
-        init_todolist_app() 
-        
+
+        init_todolist_app()
+
         self.pipeline = NLUPipelineManager()
-        self.app_path = f"{project_root}/tests/tmp/todo_list" # Store app path
+        self.app_path = f"{project_root}/tests/tmp/todo_list"  # Store app path
 
-        # Mock dspy.Predict globally for this test class to avoid external calls
-        self.mock_dspy_predict_patcher = mock.patch('talk2py.nlu_pipeline.default_response_generation.dspy.Predict')
-        self.mock_dspy_predict = self.mock_dspy_predict_patcher.start()
-        # Configure a default return value for the mock predictor call
-        prediction_mock = mock.MagicMock()
-        prediction_mock.result_summary = "Mocked LLM Response"
-        self.mock_dspy_predict.return_value.return_value = prediction_mock
-
+    # pylint: disable=unused-argument
     def teardown_method(self, method):
         """Stop the global mock patcher."""
-        self.mock_dspy_predict_patcher.stop()
+        # Removed pass
 
+    # pylint: disable=protected-access
     def _register_and_reset(self):
         """Helper to register the app context and reset NLU state within a test."""
         CHAT_CONTEXT.register_app(self.app_path)
         # Save the actual AppContext because reset_nlu_pipeline overwrites it
         actual_app_context = CHAT_CONTEXT.app_context
-        assert actual_app_context is not None # Ensure it was set
+        assert actual_app_context is not None  # Ensure it was set
         # Reset NLU state *after* app path is set
         reset_nlu_pipeline()
         # Restore the actual AppContext
@@ -126,40 +166,42 @@ class TestNLUPipelineIntegration:
         # init_todolist_app() # Removed: AppContext should be set by register_app
         # Force loading of default NLU implementations before mocks are applied
         # We need a command key to load; use a common one from the app
-        common_command_key = "todo_list.TodoList.add_todo" 
-        self.pipeline._get_param_extraction(common_command_key) 
+        common_command_key = "todo_list.TodoList.add_todo"
+        self.pipeline._get_param_extraction(common_command_key)
         self.pipeline._get_response_generation(common_command_key)
+        self.pipeline._get_intent_detection(common_command_key)
         # Verify they are loaded (optional assertion for debugging)
         assert self.pipeline._param_extraction_impl is not None
         assert self.pipeline._response_generation_impl is not None
+        assert self.pipeline._intent_detection_impl is not None
 
     async def test_simple_add_todo_command(self, mocker):
         """Test processing a simple 'add_todo' command."""
-        self._register_and_reset() # Register and reset NLU at the start
+        self._register_and_reset()  # Register and reset NLU at the start
         user_message = "add todo buy groceries"
         intent_to_test = "todo_list.TodoList.add_todo"
-        expected_params = {'description': 'buy groceries'}
+        expected_params = {"description": "buy groceries"}
         final_response = "Todo added: buy groceries"
 
-        # Mock underlying implementation methods
+        # Mock underlying implementation methods - update to use default_intent_detection
         mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.classify_intent',
-            return_value=(intent_to_test, 0.95)
+            "talk2py.nlu_pipeline.default_intent_detection.DefaultIntentDetection.classify_intent",
+            return_value=(intent_to_test, 0.95),
         )
         mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters',
-            return_value=expected_params
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters",
+            return_value=expected_params,
         )
         mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters',
-            return_value=(True, None) # Assume validation passes
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters",
+            return_value=(True, None),  # Assume validation passes
         )
         mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response',
-            return_value=final_response # Mock final response
+            "talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response_text",
+            return_value=final_response,  # Mock final response
         )
         # Spy on context saving
-        mock_save = mocker.spy(self.pipeline, '_save_nlu_context')
+        mock_save = mocker.spy(self.pipeline, "_save_nlu_context")
 
         # Process the message using await
         response = await self.pipeline.process_message(user_message)
@@ -178,45 +220,53 @@ class TestNLUPipelineIntegration:
         """Test OLD Example 2: Ambiguous intent clarification flow (using classify confidence)."""
         # This test checks the old logic path where low confidence triggers clarification
         # Note: The *new* interaction mode tests cover ambiguity via multiple results.
-        self._register_and_reset() # Register and reset NLU at the start
+        self._register_and_reset()  # Register and reset NLU at the start
         intent_under_test = "todo_list.TodoList.get_active_todos"
         user_message_1 = "show my todos"
-        user_message_2 = "Yes, that one" # Assuming user selects option 1 implicitly or explicitly
+        user_message_2 = (
+            "Yes, that one"  # Assuming user selects option 1 implicitly or explicitly
+        )
         final_response = "Showing active todos (ambiguous path)"
 
-        # Mock classify_intent to return medium confidence
+        # Mock classify_intent to return medium confidence - update to use default_intent_detection
         mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.classify_intent',
-            return_value=(intent_under_test, 0.6) # Medium confidence
+            "talk2py.nlu_pipeline.default_intent_detection.DefaultIntentDetection.classify_intent",
+            return_value=(intent_under_test, 0.6),  # Medium confidence
         )
         # Mock downstream methods after clarification
         mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters',
-            return_value={}
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters",
+            return_value={},
         )
         mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters',
-            return_value=(True, None)
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters",
+            return_value=(True, None),
         )
         mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response',
-            return_value=final_response
+            "talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response_text",
+            return_value=final_response,
         )
-        mock_save = mocker.spy(self.pipeline, '_save_nlu_context')
+        mock_save = mocker.spy(self.pipeline, "_save_nlu_context")
 
         # 1. Initial ambiguous message
         response_1 = await self.pipeline.process_message(user_message_1)
         saved_context_1 = mock_save.call_args_list[0][0][0]
 
         # Assert state transitions to INTENT_CLARIFICATION (based on confidence < threshold)
-        assert saved_context_1.current_state == NLUPipelineState.INTENT_CLARIFICATION, "State should be INTENT_CLARIFICATION (low confidence)"
+        assert (
+            saved_context_1.current_state == NLUPipelineState.INTENT_CLARIFICATION
+        ), "State should be INTENT_CLARIFICATION (low confidence)"
         # If clarification uses interaction mode now, check that too
-        assert saved_context_1.interaction_mode == InteractionState.CLARIFYING_INTENT, "Should enter clarification mode (low confidence)"
+        assert (
+            saved_context_1.interaction_mode == InteractionState.CLARIFYING_INTENT
+        ), "Should enter clarification mode (low confidence)"
         # The response should be the prompt generated by the ClarificationHandler
         assert isinstance(saved_context_1.interaction_data, ClarificationData)
         # Updated assertion for prompt text
         assert "I think you might mean this, but I'm not sure:" in response_1
-        assert f"1. {intent_under_test}" in response_1 # Assuming it offers the single uncertain intent
+        assert (
+            f"1. {intent_under_test}" in response_1
+        )  # Assuming it offers the single uncertain intent
 
         # 2. User provides clarification (e.g., "Yes")
         # Mock the handler to successfully process the clarification
@@ -224,60 +274,72 @@ class TestNLUPipelineIntegration:
             response=f"Okay, proceeding with {intent_under_test}.",
             exit_mode=True,
             proceed_immediately=True,
-            update_context={'current_intent': intent_under_test} # Ensure intent is set
+            update_context={
+                "current_intent": intent_under_test
+            },  # Ensure intent is set
         )
         # Mock the specific handler instance used by the pipeline
-        handler_instance = self.pipeline._interaction_handlers[InteractionState.CLARIFYING_INTENT]
-        mocker.patch.object(handler_instance, 'handle_input', return_value=mock_handler_result)
+        handler_instance = self.pipeline._interaction_handlers[
+            InteractionState.CLARIFYING_INTENT
+        ]
+        mocker.patch.object(
+            handler_instance, "handle_input", return_value=mock_handler_result
+        )
 
         response_2 = await self.pipeline.process_message(user_message_2)
         # Check the saved context *after* the second message
         # It should be called again after processing user_message_2
-        assert len(mock_save.call_args_list) > 1, "Context should have been saved after second message"
-        saved_context_2 = mock_save.call_args_list[-1][0][0] # Get the last saved context
-
+        assert (
+            len(mock_save.call_args_list) > 1
+        ), "Context should have been saved after second message"
+        saved_context_2 = mock_save.call_args_list[-1][0][
+            0
+        ]  # Get the last saved context
 
         # Assert mode exited, intent confirmed, pipeline proceeded
         assert saved_context_2.interaction_mode is None
         assert saved_context_2.current_intent == intent_under_test
-        assert saved_context_2.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
+        assert (
+            saved_context_2.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
+        )
         assert response_2 == final_response
         # Ensure clarify_intent (old mock) wasn't called if handler is used
         # mock_clarify.assert_not_called() # Removed mock_clarify setup
 
+    # pylint: disable=too-many-locals
     async def test_parameter_validation_flow(self, mocker):
         """Test OLD Example 3: Parameter identification and validation loop."""
-        self._register_and_reset() # Register and reset NLU at the start
+        self._register_and_reset()  # Register and reset NLU at the start
         intent_to_test = "todo_list.TodoList.add_todo"
         user_message_1 = "add a task"
         user_message_2 = "buy milk"
         final_response = "Validated and added: buy milk"
 
         mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.classify_intent',
-            return_value=(intent_to_test, 0.95)
+            "talk2py.nlu_pipeline.default_intent_detection.DefaultIntentDetection.classify_intent",
+            return_value=(intent_to_test, 0.95),
         )
         # Mock identify_parameters - initially returns nothing, then extracts
         mock_identify = mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters',
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters",
             side_effect=[
-                {}, # First call (user_message_1)
-                {'description': 'buy milk'} # Second call (user_message_2 via handler)
-            ]
+                {},  # First call (user_message_1)
+                {"description": "buy milk"},  # Second call (user_message_2 via handler)
+            ],
         )
         # Mock validate_parameters - fails first, then succeeds
         mock_validate = mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters',
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters",
             side_effect=[
-                (False, "Missing required parameter: description"), # First call fails
-                (True, None) # Second call succeeds
-            ]
+                (False, "Missing required parameter: description"),  # First call fails
+                (True, None),  # Second call succeeds
+            ],
         )
         mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response',
-            return_value=final_response
+            "talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response_text",
+            return_value=final_response,
         )
-        mock_save = mocker.spy(self.pipeline, '_save_nlu_context')
+        mock_save = mocker.spy(self.pipeline, "_save_nlu_context")
 
         # 1. Initial message, intent classified, needs params -> Validation Mode
         response_1 = await self.pipeline.process_message(user_message_1)
@@ -296,61 +358,66 @@ class TestNLUPipelineIntegration:
         # The ValidationHandler's placeholder logic doesn't re-identify.
         # Let's mock the handler's handle_input for this test.
         mock_handler_result = InteractionResult(
-            response=f"Okay, I've updated description.",
+            response="Okay, I've updated description.",
             exit_mode=True,
             proceed_immediately=True,
-            update_context={'current_parameters': {'description': 'buy milk'}}
+            update_context={"current_parameters": {"description": "buy milk"}},
         )
-        mocker.patch.object(ValidationHandler, 'handle_input', return_value=mock_handler_result)
+        mocker.patch.object(
+            ValidationHandler, "handle_input", return_value=mock_handler_result
+        )
 
         response_2 = await self.pipeline.process_message(user_message_2)
         saved_context_2 = mock_save.call_args_list[1][0][0]
 
         # Assert mode exited, context updated
         assert saved_context_2.interaction_mode is None
-        assert saved_context_2.current_parameters == {'description': 'buy milk'}
+        assert saved_context_2.current_parameters == {"description": "buy milk"}
 
         # Assert pipeline proceeded and validation passed
         # mock_identify call count depends on whether handler re-identifies. Assume not here.
-        assert mock_identify.call_count == 2, "Identify should be called initially and during re-processing"
+        assert (
+            mock_identify.call_count == 2
+        ), "Identify should be called initially and during re-processing"
         assert mock_validate.call_count == 2
-        assert saved_context_2.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
+        assert (
+            saved_context_2.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
+        )
         assert response_2 == final_response
 
+    # pylint: disable=too-many-locals
     async def test_intent_misinterpretation_reset(self, mocker):
         """Test that providing feedback resets the NLU context and allows reprocessing."""
         self._register_and_reset()
         wrong_intent = "todo_list.TodoList.get_active_todos"
         correct_intent = "todo_list.TodoList.add_todo"
         user_message_1 = "add a task to buy milk"
-        user_message_2 = "cancel" # NEW - Simple meta-command known to trigger reset
-        user_message_3 = "add a task to buy milk" # Re-issue the command after reset
+        user_message_2 = "cancel"  # NEW - Simple meta-command known to trigger reset
+        user_message_3 = "add a task to buy milk"  # Re-issue the command after reset
 
         # Setup for first message - wrong intent classification
         mock_classify = mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.classify_intent',
+            "talk2py.nlu_pipeline.default_intent_detection.DefaultIntentDetection.classify_intent",
             # Changed from list to tuple
-            return_value=(wrong_intent, 0.95)
+            return_value=(wrong_intent, 0.95),
         )
         # No parameters needed for get_active_todos
         mock_identify = mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters',
-            return_value={}
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters",
+            return_value={},
         )
         mock_validate = mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters',
-            return_value=(True, None)
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters",
+            return_value=(True, None),
         )
         # Mock response generation for wrong intent
         mock_generate = mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response',
-            return_value="Here are your active todos..."
+            "talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response_text",
+            return_value="Here are your active todos...",
         )
 
         # Spy on _save_nlu_context
-        mock_save = mocker.spy(self.pipeline, '_save_nlu_context')
-        # Spy on reset pipeline
-        mock_reset = mocker.spy(self.pipeline, '_reset_pipeline')
+        mock_save = mocker.spy(self.pipeline, "_save_nlu_context")
 
         # 1. First message - Should use wrong intent
         response_1 = await self.pipeline.process_message(user_message_1)
@@ -358,42 +425,56 @@ class TestNLUPipelineIntegration:
 
         # Assert first message results
         assert saved_context_1.current_intent == wrong_intent
-        assert saved_context_1.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
+        assert (
+            saved_context_1.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
+        )
         # Assuming feedback mode is NOT entered by default
         assert saved_context_1.interaction_mode is None
         assert response_1 == "Here are your active todos..."
 
         # 2. Change mocks for potential reprocessing after feedback
         # Update the mock classify_intent to return the correct intent *if* called again
-        mock_classify.return_value = (correct_intent, 0.95) # Changed from list to tuple
+        mock_classify.return_value = (
+            correct_intent,
+            0.95,
+        )  # Changed from list to tuple
         # Parameter for add_todo
-        mock_identify.return_value = {"description": "buy milk"} # Corrected param name
+        mock_identify.return_value = {"description": "buy milk"}  # Corrected param name
         mock_validate.return_value = (True, None)
         # Mock response for correct intent
         mock_generate.return_value = "I've added a task to buy milk."
 
         # --- Simulate pipeline reset before processing the feedback message ---
         # Mock _get_nlu_context to return a default context for the second call
-        mocker.patch.object(self.pipeline, '_get_nlu_context', return_value=NLUPipelineContext())
+        mocker.patch.object(
+            self.pipeline, "_get_nlu_context", return_value=NLUPipelineContext()
+        )
         # --- End context mock ---
 
         # User provides feedback ("cancel") - should reset and allow reprocessing
         response_2 = await self.pipeline.process_message(user_message_2)
         # Ensure context was saved again
-        assert len(mock_save.call_args_list) > 1, "Context should have been saved after feedback message"
+        assert (
+            len(mock_save.call_args_list) > 1
+        ), "Context should have been saved after feedback message"
         saved_context_2 = mock_save.call_args_list[1][0][0]
 
-
         # Assert feedback recognition and context reset
-        # mock_reset.assert_called_once() # Ensure reset was called by feedback detection # REMOVED: Rely on state assertions
-        assert saved_context_2.current_intent is None, "Intent should be reset after feedback"
-        assert saved_context_2.current_state == NLUPipelineState.INTENT_CLASSIFICATION, "Should reset to intent classification"
+        assert (
+            saved_context_2.current_intent is None
+        ), "Intent should be reset after feedback"
+        assert (
+            saved_context_2.current_state == NLUPipelineState.INTENT_CLASSIFICATION
+        ), "Should reset to intent classification"
         # Response acknowledges feedback (assuming default feedback response)
         # Note: The actual response might vary based on feedback handling implementation
         # Adjusting expectation to match cancellation response observed in other tests
-        assert response_2 == "Okay, cancelling the current operation.", f"Unexpected feedback response: {response_2}"
-        # assert "Okay, let me try again." in response_2 or "Got it, cancelling" in response_2 or "I understand." in response_2 # Added another possible response
-
+        assert (
+            response_2 == "Okay, cancelling the current operation."
+        ), f"Unexpected feedback response: {response_2}"
+        # assert "Okay, let me try again." in response_2 or
+        # "Got it, cancelling" in response_2 or
+        # "I understand." in response_2 # Added another possible response
 
         # 3. Third message with correct intent (reprocessing the original request)
         # Ensure mocks are still set correctly for this call
@@ -402,16 +483,25 @@ class TestNLUPipelineIntegration:
 
         response_3 = await self.pipeline.process_message(user_message_3)
         # Ensure context was saved again
-        assert len(mock_save.call_args_list) > 2, "Context should have been saved after third message"
-        saved_context_3 = mock_save.call_args_list[2][0][0] # Check the latest saved context
+        assert (
+            len(mock_save.call_args_list) > 2
+        ), "Context should have been saved after third message"
+        saved_context_3 = mock_save.call_args_list[2][0][
+            0
+        ]  # Check the latest saved context
 
         # Assert correct processing after reset
-        assert saved_context_3.current_intent == correct_intent, "Should use correct intent after reset"
-        assert saved_context_3.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
+        assert (
+            saved_context_3.current_intent == correct_intent
+        ), "Should use correct intent after reset"
+        assert (
+            saved_context_3.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
+        )
         # Corrected parameter name access
         assert saved_context_3.current_parameters.get("description") == "buy milk"
         assert response_3 == "I've added a task to buy milk."
 
+    # pylint: disable=protected-access
     async def test_interaction_mode_intent_clarification_invalid_input(self, mocker):
         """Test invalid user input during intent clarification mode."""
         self._register_and_reset()
@@ -422,29 +512,40 @@ class TestNLUPipelineIntegration:
         initial_context = NLUPipelineContext(
             current_state=NLUPipelineState.INTENT_CLARIFICATION,
             interaction_mode=InteractionState.CLARIFYING_INTENT,
-            interaction_data=ClarificationData(options=[ambiguous_intent_1, ambiguous_intent_2], original_query="do stuff")
+            interaction_data=ClarificationData(
+                options=[ambiguous_intent_1, ambiguous_intent_2],
+                original_query="do stuff",
+                user_input="test input needing clarification",
+            ),
         )
         # Mock _get_nlu_context to return this specific context state for this call
-        mocker.patch.object(self.pipeline, '_get_nlu_context', return_value=initial_context)
+        mocker.patch.object(
+            self.pipeline, "_get_nlu_context", return_value=initial_context
+        )
 
         # Mock the handler's handle_input to simulate returning a re-prompt
         # This avoids relying on the exact placeholder logic of the handler
-        initial_prompt = self.pipeline._interaction_handlers[InteractionState.CLARIFYING_INTENT].get_initial_prompt(initial_context)
+        initial_prompt = self.pipeline._interaction_handlers[
+            InteractionState.CLARIFYING_INTENT
+        ].get_initial_prompt(initial_context)
         mock_handler_result = InteractionResult(
             response=f"Please enter the number corresponding to your choice.\\n{initial_prompt}",
-            exit_mode=False # Stays in mode
+            exit_mode=False,  # Stays in mode
         )
-        mocker.patch.object(ClarificationHandler, 'handle_input', return_value=mock_handler_result)
+        mocker.patch.object(
+            ClarificationHandler, "handle_input", return_value=mock_handler_result
+        )
         # Spy on saving context to ensure it happens
-        mock_save = mocker.spy(self.pipeline, '_save_nlu_context')
-
+        mock_save = mocker.spy(self.pipeline, "_save_nlu_context")
 
         # Send invalid input
         user_message = "show me B"
         response = await self.pipeline.process_message(user_message)
         # Get context *after* processing (it should have been saved)
         # We can spy on _save_nlu_context to check the final state
-        saved_context = mock_save.call_args[0][0] # Get the context object passed to _save_nlu_context
+        saved_context = mock_save.call_args[0][
+            0
+        ]  # Get the context object passed to _save_nlu_context
 
         # Assert mode is still active
         assert saved_context.interaction_mode == InteractionState.CLARIFYING_INTENT
@@ -452,7 +553,6 @@ class TestNLUPipelineIntegration:
         # Assert response is the re-prompt from the mocked handler result
         assert "Please enter the number" in response
         assert "1. intent_A" in response
-
 
     async def test_interaction_mode_intent_clarification_cancel(self, mocker):
         """Test cancelling during intent clarification mode."""
@@ -462,12 +562,18 @@ class TestNLUPipelineIntegration:
         initial_context = NLUPipelineContext(
             current_state=NLUPipelineState.INTENT_CLARIFICATION,
             interaction_mode=InteractionState.CLARIFYING_INTENT,
-            interaction_data=ClarificationData(options=["intent_A", "intent_B"], original_query="do stuff")
+            interaction_data=ClarificationData(
+                options=["intent_A", "intent_B"],
+                original_query="do stuff",
+                user_input="test input needing clarification",
+            ),
         )
         # Mock _get_nlu_context to return this specific context state for this call
-        mocker.patch.object(self.pipeline, '_get_nlu_context', return_value=initial_context)
+        mocker.patch.object(
+            self.pipeline, "_get_nlu_context", return_value=initial_context
+        )
         # Spy on saving context
-        mock_save = mocker.spy(self.pipeline, '_save_nlu_context')
+        mock_save = mocker.spy(self.pipeline, "_save_nlu_context")
 
         # Send cancel command
         user_message = "cancel"
@@ -476,60 +582,83 @@ class TestNLUPipelineIntegration:
         saved_context = mock_save.call_args[0][0]
 
         # Assert mode was reset by the meta-command check
-        assert saved_context.interaction_mode is None, "Interaction mode should be reset"
-        assert saved_context.interaction_data is None, "Interaction data should be reset"
+        assert (
+            saved_context.interaction_mode is None
+        ), "Interaction mode should be reset"
+        assert (
+            saved_context.interaction_data is None
+        ), "Interaction data should be reset"
         # Assert response is the cancellation confirmation
         assert response == "Okay, cancelling the current operation."
         # State should reset to INTENT_CLASSIFICATION after cancel
-        assert saved_context.current_state == NLUPipelineState.INTENT_CLASSIFICATION, "State should reset to INTENT_CLASSIFICATION after cancel"
+        assert (
+            saved_context.current_state == NLUPipelineState.INTENT_CLASSIFICATION
+        ), "State should reset to INTENT_CLASSIFICATION after cancel"
 
+    # pylint: disable=too-many-locals
     async def test_interaction_mode_param_validation_success(self, mocker):
         """Test successful flow through PARAMETER_VALIDATION interaction mode."""
         self._register_and_reset()
-        intent = "todo_list.TodoList.add_todo" # Intent requiring params
+        intent = "todo_list.TodoList.add_todo"  # Intent requiring params
         missing_param = "description"
         provided_value = "buy more milk"
-        user_message_1 = "add task" # Initial message, missing description
-        user_message_2 = provided_value # Follow-up with description
+        user_message_1 = "add task"  # Initial message, missing description
+        user_message_2 = provided_value  # Follow-up with description
+        final_response = "Task added successfully."  # Define the final response
 
         # Mock pipeline steps for the first message
         mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.classify_intent',
-            return_value=(intent, 0.95) # High confidence
+            "talk2py.nlu_pipeline.default_intent_detection.DefaultIntentDetection.classify_intent",
+            return_value=(intent, 0.95),  # High confidence
         )
         # Mock first identify_parameters call (returns nothing)
         mock_identify = mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters',
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters",
             side_effect=[
-                {}, # First call (user_message_1)
+                {},  # First call (user_message_1)
                 # Handler should extract from user_message_2, not identify_parameters
                 # Let's assume identify won't be called again, or returns {} if it is
-                {}
-            ]
+                {},
+            ],
         )
         # Mock first validate_parameters call (fails)
         validation_error_msg = f"Missing required parameter '{missing_param}'"
         mock_validate = mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters',
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters",
             side_effect=[
-                (False, validation_error_msg), # Fails validation first time
-                (True, None) # Succeeds second time (after handler provides param)
-            ]
+                (False, validation_error_msg),  # Fails validation first time
+                (True, None),  # Succeeds second time (after handler provides param)
+            ],
         )
-        # Spy on _save_nlu_context
-        mock_save = mocker.spy(self.pipeline, '_save_nlu_context')
+        mocker.patch(
+            "talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response_text",
+            return_value=final_response,
+        )
+        mock_save = mocker.spy(self.pipeline, "_save_nlu_context")
 
         # 1. Initial message triggering validation failure
         response_1 = await self.pipeline.process_message(user_message_1)
         saved_context_1 = mock_save.call_args_list[0][0][0]
 
         # Assert mode entry
-        assert saved_context_1.interaction_mode == InteractionState.VALIDATING_PARAMETER, "Should enter validation mode"
-        assert saved_context_1.current_state == NLUPipelineState.PARAMETER_VALIDATION, "State should be PARAMETER_VALIDATION"
-        assert isinstance(saved_context_1.interaction_data, ValidationData), "Interaction data should be ValidationData"
-        assert saved_context_1.interaction_data.parameter_name == missing_param, "Data should contain missing param name"
-        assert validation_error_msg in response_1, "Response should contain validation error"
-        assert f"Please provide a valid value for {missing_param}" in response_1, "Response should prompt for param"
+        assert (
+            saved_context_1.interaction_mode == InteractionState.VALIDATING_PARAMETER
+        ), "Should enter validation mode"
+        assert (
+            saved_context_1.current_state == NLUPipelineState.PARAMETER_VALIDATION
+        ), "State should be PARAMETER_VALIDATION"
+        assert isinstance(
+            saved_context_1.interaction_data, ValidationData
+        ), "Interaction data should be ValidationData"
+        assert (
+            saved_context_1.interaction_data.parameter_name == missing_param
+        ), "Data should contain missing param name"
+        assert (
+            validation_error_msg in response_1
+        ), "Response should contain validation error"
+        assert (
+            f"Please provide a valid value for {missing_param}" in response_1
+        ), "Response should prompt for param"
         mock_identify.assert_called_once()
         mock_validate.assert_called_once()
 
@@ -537,42 +666,55 @@ class TestNLUPipelineIntegration:
         # --- Update mocks for the second call ---
         # Mock the ValidationHandler to successfully process the input
         mock_handler_result = InteractionResult(
-            response=f"Okay, I've updated {missing_param}.", # Or potentially no response if proceed_immediately
+            response=f"Okay, I've updated {missing_param}.",  # Or potentially no response if proceed_immediately
             exit_mode=True,
             proceed_immediately=True,
             # Crucially, update the context with the parameter
-            update_context={'current_parameters': {missing_param: provided_value}}
+            update_context={"current_parameters": {missing_param: provided_value}},
         )
-        handler_instance = self.pipeline._interaction_handlers[InteractionState.VALIDATING_PARAMETER]
-        mocker.patch.object(handler_instance, 'handle_input', return_value=mock_handler_result)
+        handler_instance = self.pipeline._interaction_handlers[
+            InteractionState.VALIDATING_PARAMETER
+        ]
+        mocker.patch.object(
+            handler_instance, "handle_input", return_value=mock_handler_result
+        )
 
         # Mock generate_response for the final step
         mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response',
-            return_value="Mocked LLM Response Post Validation"
+            "talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response_text",
+            return_value="Mocked LLM Response Post Validation",
         )
         # --- End mock updates ---
 
         response_2 = await self.pipeline.process_message(user_message_2)
         # Ensure context saved again
-        assert len(mock_save.call_args_list) > 1, "Context should have been saved after second message"
-        saved_context_2 = mock_save.call_args_list[-1][0][0] # Get the last saved context
+        assert (
+            len(mock_save.call_args_list) > 1
+        ), "Context should have been saved after second message"
+        saved_context_2 = mock_save.call_args_list[-1][0][
+            0
+        ]  # Get the last saved context
 
         # Assert mode is exited and context updated by the handler
-        assert saved_context_2.interaction_mode is None, "Interaction mode should be exited"
+        assert (
+            saved_context_2.interaction_mode is None
+        ), "Interaction mode should be exited"
         # The handler updates the context *before* _handle_state_logic runs again
-        assert saved_context_2.current_parameters.get(missing_param) == provided_value, "Context params should be updated"
+        assert (
+            saved_context_2.current_parameters.get(missing_param) == provided_value
+        ), "Context params should be updated"
 
         # Assert pipeline proceeded correctly after validation
         # Handler returns proceed_immediately=True -> _handle_state_logic runs -> validate passes -> generates response
-        assert saved_context_2.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION, "State should advance post-validation"
+        assert (
+            saved_context_2.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
+        ), "State should advance post-validation"
         # Check the final response generated after validation
         assert response_2 == "Mocked LLM Response Post Validation"
         # Check mocks were called again
         # identify_parameters might be called again depending on implementation, adjust if needed
         # assert mock_identify.call_count == 2
-        assert mock_validate.call_count == 2 # Called again by _handle_state_logic
-
+        assert mock_validate.call_count == 2  # Called again by _handle_state_logic
 
     async def test_interaction_mode_param_validation_cancel(self, mocker):
         """Test cancelling during parameter validation mode."""
@@ -583,28 +725,40 @@ class TestNLUPipelineIntegration:
         initial_context = NLUPipelineContext(
             current_state=NLUPipelineState.PARAMETER_VALIDATION,
             interaction_mode=InteractionState.VALIDATING_PARAMETER,
-            interaction_data=ValidationData(parameter_name=missing_param, error_message="Invalid date format")
+            interaction_data=ValidationData(
+                parameter_name=missing_param,
+                error_message="Invalid date format",
+                user_input="test input needing validation",
+            ),
         )
         # Mock _get_nlu_context to return this specific context state
-        mocker.patch.object(self.pipeline, '_get_nlu_context', return_value=initial_context)
+        mocker.patch.object(
+            self.pipeline, "_get_nlu_context", return_value=initial_context
+        )
         # Spy on saving context
-        mock_save = mocker.spy(self.pipeline, '_save_nlu_context')
+        mock_save = mocker.spy(self.pipeline, "_save_nlu_context")
 
         # Send cancel command
-        user_message = "nevermind" # Use updated meta command list
+        user_message = "nevermind"  # Use updated meta command list
         response = await self.pipeline.process_message(user_message)
         # Get context after processing
         saved_context = mock_save.call_args[0][0]
 
         # Assert mode was reset by the meta-command check
-        assert saved_context.interaction_mode is None, "Interaction mode should be reset"
-        assert saved_context.interaction_data is None, "Interaction data should be reset"
+        assert (
+            saved_context.interaction_mode is None
+        ), "Interaction mode should be reset"
+        assert (
+            saved_context.interaction_data is None
+        ), "Interaction data should be reset"
         # Assert response is the cancellation confirmation
         assert response == "Okay, cancelling the current operation."
         # State should reset to INTENT_CLASSIFICATION after cancel
-        assert saved_context.current_state == NLUPipelineState.INTENT_CLASSIFICATION, "State should reset to INTENT_CLASSIFICATION after cancel"
+        assert (
+            saved_context.current_state == NLUPipelineState.INTENT_CLASSIFICATION
+        ), "State should reset to INTENT_CLASSIFICATION after cancel"
 
-    async def test_interaction_mode_feedback_not_entered(self, mocker): # Renamed test
+    async def test_interaction_mode_feedback_not_entered(self, mocker):  # Renamed test
         """Test that feedback mode is not entered by default after response generation."""
         self._register_and_reset()
         intent = "todo_list.TodoList.get_active_todos"
@@ -614,21 +768,21 @@ class TestNLUPipelineIntegration:
 
         # Mock pipeline steps to successfully reach response generation
         mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.classify_intent',
-            return_value=(intent, 0.95)
+            "talk2py.nlu_pipeline.default_intent_detection.DefaultIntentDetection.classify_intent",
+            return_value=(intent, 0.95),
         )
         mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters',
-            return_value={} # No params needed
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters",
+            return_value={},  # No params needed
         )
         mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters',
-            return_value=(True, None) # Params valid
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters",
+            return_value=(True, None),  # Params valid
         )
         # Mock generate_response to return the text we expect
         mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response',
-            return_value=final_response_text
+            "talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response_text",
+            return_value=final_response_text,
         )
         # REMOVED incorrect mock:
         # mocker.patch(
@@ -637,7 +791,7 @@ class TestNLUPipelineIntegration:
         # )
 
         # Spy on _save_nlu_context
-        mock_save = mocker.spy(self.pipeline, '_save_nlu_context')
+        mock_save = mocker.spy(self.pipeline, "_save_nlu_context")
 
         # 1. Initial message - Should run pipeline and end WITHOUT feedback mode
         user_message_1 = "show active todos"
@@ -646,15 +800,21 @@ class TestNLUPipelineIntegration:
         mock_save.assert_called_once()
         saved_context_1 = mock_save.call_args_list[0][0][0]
 
-
         # Assert mode is NOT entered
-        assert saved_context_1.interaction_mode is None, "Should NOT enter feedback mode"
+        assert (
+            saved_context_1.interaction_mode is None
+        ), "Should NOT enter feedback mode"
         # State should end in RESPONSE_TEXT_GENERATION
-        assert saved_context_1.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION, "State should be RESPONSE_TEXT_GENERATION"
+        assert (
+            saved_context_1.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
+        ), "State should be RESPONSE_TEXT_GENERATION"
         # Check the response is correct
         assert response_1 == final_response_text
 
-    async def test_new_message_after_response_resets_to_intent(self, mocker): # Renamed test
+    # pylint: disable=too-many-locals
+    async def test_new_message_after_response_resets_to_intent(
+        self, mocker
+    ):  # Renamed test
         """Test that sending a new message after a response (without feedback mode) starts intent classification."""
         self._register_and_reset()
         intent = "todo_list.TodoList.get_active_todos"
@@ -662,24 +822,24 @@ class TestNLUPipelineIntegration:
         # Minimal execution results needed for context - removed as not mockable this way
         # exec_results = {"status": "Success", "data": "Executed placeholder."}
         user_message_1 = "show active todos"
-        user_message_2 = "now add a task" # A new, unrelated command
+        user_message_2 = "now add a task"  # A new, unrelated command
 
         # Mock pipeline steps for the first message
         mock_classify = mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.classify_intent',
-            return_value=(intent, 0.95)
+            "talk2py.nlu_pipeline.default_intent_detection.DefaultIntentDetection.classify_intent",
+            return_value=(intent, 0.95),
         )
-        mock_identify = mocker.patch( # Assign mock to variable
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters',
-            return_value={}
+        mock_identify = mocker.patch(  # Assign mock to variable
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters",
+            return_value={},
         )
-        mock_validate = mocker.patch( # Assign mock to variable
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters',
-            return_value=(True, None)
+        mock_validate = mocker.patch(  # Assign mock to variable
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters",
+            return_value=(True, None),
         )
         mock_generate = mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response',
-            return_value=final_response_text
+            "talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response_text",
+            return_value=final_response_text,
         )
         # REMOVED incorrect mock:
         # mocker.patch(
@@ -687,50 +847,65 @@ class TestNLUPipelineIntegration:
         #     return_value=exec_results
         # )
         # Spy on _save_nlu_context
-        mock_save = mocker.spy(self.pipeline, '_save_nlu_context')
+        mock_save = mocker.spy(self.pipeline, "_save_nlu_context")
 
         # 1. Initial message - Should run pipeline and end WITHOUT feedback mode
         response_1 = await self.pipeline.process_message(user_message_1)
         # Ensure context was saved
-        assert len(mock_save.call_args_list) == 1, "Context should have been saved after first message"
+        assert (
+            len(mock_save.call_args_list) == 1
+        ), "Context should have been saved after first message"
         saved_context_1 = mock_save.call_args_list[0][0][0]
-
 
         # Assert mode is NOT entered and state is RESPONSE_TEXT_GENERATION
         assert saved_context_1.interaction_mode is None
-        assert saved_context_1.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
+        assert (
+            saved_context_1.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
+        )
         assert response_1 == final_response_text
 
         # 2. User provides a new command
         # --- Simulate pipeline reset before processing the new message ---
         # Mock _get_nlu_context to return a default context for the second call
-        mocker.patch.object(self.pipeline, '_get_nlu_context', return_value=NLUPipelineContext())
+        mocker.patch.object(
+            self.pipeline, "_get_nlu_context", return_value=NLUPipelineContext()
+        )
         # --- End context mock ---
 
         # Update mocks for the second command
         new_intent = "todo_list.TodoList.add_todo"
-        new_params = {"description": "a task"} # Example params for add_todo
+        new_params = {"description": "a task"}  # Example params for add_todo
         mock_classify.return_value = (new_intent, 0.98)
-        mock_identify.return_value = new_params # Set identify mock for second call
-        mock_validate.return_value = (True, None) # Set validate mock for second call
-        mock_generate.return_value = "Okay, added." # Dummy response for second command
-
+        mock_identify.return_value = new_params  # Set identify mock for second call
+        mock_validate.return_value = (True, None)  # Set validate mock for second call
+        mock_generate.return_value = "Okay, added."  # Dummy response for second command
 
         response_2 = await self.pipeline.process_message(user_message_2)
         # Ensure context saved again
-        assert len(mock_save.call_args_list) > 1, "Context should have been saved after second message"
-        saved_context_2 = mock_save.call_args_list[-1][0][0] # Get the last saved context
-
+        assert (
+            len(mock_save.call_args_list) > 1
+        ), "Context should have been saved after second message"
+        saved_context_2 = mock_save.call_args_list[-1][0][
+            0
+        ]  # Get the last saved context
 
         # Assert pipeline reset to classify the new intent
         # The state *during* processing should eventually hit INTENT_CLASSIFICATION.
         # The *final* state after processing "now add a task" will likely be RESPONSE_TEXT_GENERATION again.
         # Let's check that the *intent* was correctly classified from the second message.
-        assert saved_context_2.current_intent == new_intent, "Pipeline should have classified the new intent"
-        assert saved_context_2.current_parameters == new_params, "Parameters should be identified for the new intent"
-        assert saved_context_2.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION, "Pipeline should end in response generation after processing second command"
-        assert saved_context_2.interaction_mode is None # Should not be in interaction mode
-        assert response_2 == "Okay, added." # Check the response for the second command
+        assert (
+            saved_context_2.current_intent == new_intent
+        ), "Pipeline should have classified the new intent"
+        assert (
+            saved_context_2.current_parameters == new_params
+        ), "Parameters should be identified for the new intent"
+        assert (
+            saved_context_2.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
+        ), "Pipeline should end in response generation after processing second command"
+        assert (
+            saved_context_2.interaction_mode is None
+        )  # Should not be in interaction mode
+        assert response_2 == "Okay, added."  # Check the response for the second command
 
     async def test_interaction_mode_feedback_cancel(self, mocker):
         """Test cancelling during feedback mode (if it were implemented)."""
@@ -740,14 +915,20 @@ class TestNLUPipelineIntegration:
 
         # Prepare the context to be *in* feedback mode
         initial_context = NLUPipelineContext(
-            current_state=NLUPipelineState.RESPONSE_TEXT_GENERATION, # State remains here while awaiting feedback
+            current_state=NLUPipelineState.RESPONSE_TEXT_GENERATION,  # State remains here while awaiting feedback
             interaction_mode=InteractionState.AWAITING_FEEDBACK,
-            interaction_data=FeedbackData(response_text="Some response", execution_results={})
+            interaction_data=FeedbackData(
+                response_text="Some response",
+                execution_results={},
+                user_input="test input needing feedback",
+            ),
         )
         # Mock _get_nlu_context to return this specific context state
-        mocker.patch.object(self.pipeline, '_get_nlu_context', return_value=initial_context)
+        mocker.patch.object(
+            self.pipeline, "_get_nlu_context", return_value=initial_context
+        )
         # Spy on saving context
-        mock_save = mocker.spy(self.pipeline, '_save_nlu_context')
+        mock_save = mocker.spy(self.pipeline, "_save_nlu_context")
 
         # Send cancel command
         user_message = "cancel"
@@ -756,13 +937,20 @@ class TestNLUPipelineIntegration:
         saved_context = mock_save.call_args[0][0]
 
         # Assert mode was reset
-        assert saved_context.interaction_mode is None, "Interaction mode should be reset"
-        assert saved_context.interaction_data is None, "Interaction data should be reset"
+        assert (
+            saved_context.interaction_mode is None
+        ), "Interaction mode should be reset"
+        assert (
+            saved_context.interaction_data is None
+        ), "Interaction data should be reset"
         # Assert response is the cancellation confirmation
         assert response == "Okay, cancelling the current operation."
         # State should reset to INTENT_CLASSIFICATION after cancel
-        assert saved_context.current_state == NLUPipelineState.INTENT_CLASSIFICATION, "State should reset to INTENT_CLASSIFICATION after cancel"
+        assert (
+            saved_context.current_state == NLUPipelineState.INTENT_CLASSIFICATION
+        ), "State should reset to INTENT_CLASSIFICATION after cancel"
 
+    # pylint: disable=protected-access, import-outside-toplevel, unused-import
     async def test_pipeline_calls_command_executor(self, mocker):
         """Test that the pipeline calls the CommandExecutor after successful NLU."""
         self._register_and_reset()
@@ -770,62 +958,68 @@ class TestNLUPipelineIntegration:
         params = {"description": "call executor"}
         user_message = "add task call executor"
         # Mocked execution result
-        exec_result = {"status": "Success", "data": {"item": "call executor"}, "message": "Todo added."}
+        exec_result = {
+            "status": "Success",
+            "data": {"item": "call executor"},
+            "message": "Todo added.",
+        }
         # Mocked final LLM response after execution
         final_llm_response = "Okay, I've added 'call executor' to your list."
 
         # Mock NLU stages to succeed
         mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.classify_intent',
-            return_value=(intent, 0.99)
+            "talk2py.nlu_pipeline.default_intent_detection.DefaultIntentDetection.classify_intent",
+            return_value=(intent, 0.99),
         )
         mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters',
-            return_value=params
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters",
+            return_value=params,
         )
         mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters',
-            return_value=(True, None) # Validation passes
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters",
+            return_value=(True, None),  # Validation passes
         )
 
         # Create Action and add dummy executor to app_context
-        from talk2py import Action
         from talk2py.code_parsing_execution.command_executor import CommandExecutor
-        
+
         # Create and add executor to app_context
         executor = CommandExecutor(CHAT_CONTEXT.get_registry(self.app_path))
-        CHAT_CONTEXT.app_context['executor'] = executor
-        
+        CHAT_CONTEXT.app_context["executor"] = executor
+
         # Instead of mocking the executor, patch the execution placeholder in pipeline_manager
         # This is the part of code that would call the executor in a real implementation
         mocker.patch.object(
             self.pipeline,
-            '_handle_state_logic',
+            "_handle_state_logic",
             side_effect=self.pipeline._handle_state_logic,  # Use the original method
-            wraps=self.pipeline._handle_state_logic  # But also wrap it to spy on calls
+            wraps=self.pipeline._handle_state_logic,  # But also wrap it to spy on calls
         )
-        
+
         # Patch the placeholder execution code in the pipeline to return our mocked result
         # This simulates the real executor being called and returning a result
         mocker.patch.dict(
-            'talk2py.nlu_pipeline.pipeline_manager.__dict__',
-            {'execution_results': exec_result}
+            "talk2py.nlu_pipeline.pipeline_manager.__dict__",
+            {"execution_results": exec_result},
         )
 
-        # Mock the final LLM call 
-        prediction_mock = mock.MagicMock()
-        prediction_mock.result_summary = final_llm_response
-        self.mock_dspy_predict.return_value.return_value = prediction_mock
-        
+        # Mock the final LLM call - No, mock the response generation directly
+        # prediction_mock = mock.MagicMock()
+        # prediction_mock.result_summary = final_llm_response
+        mocker.patch(
+            "talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response_text",
+            return_value=final_llm_response,  # Mock the final response text
+        )
+
         # Spy on _save_nlu_context to capture the context during test
-        mock_save = mocker.spy(self.pipeline, '_save_nlu_context')
+        mock_save = mocker.spy(self.pipeline, "_save_nlu_context")
 
         # Process the message
         response = await self.pipeline.process_message(user_message)
 
         # Verify execution results were used
         assert response == final_llm_response
-        
+
         # Verify the context was saved and has expected values
         assert mock_save.call_count > 0, "Context should have been saved at least once"
         # Get the last saved context
@@ -834,12 +1028,12 @@ class TestNLUPipelineIntegration:
         assert saved_context.current_parameters == params
         assert saved_context.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
 
+    # pylint: disable=protected-access
     async def test_pipeline_uses_nlu_overrides(self, mocker):
         """Test that the pipeline uses registered NLU overrides for a specific command."""
         self._register_and_reset()
-        command_key_to_override = "todo_list.TodoList.add_todo"
         user_message = "override this add command"
-        
+
         # Setup our mocked data and responses
         override_intent = "override.intent"
         override_params = {"override_param": "value_from_override"}
@@ -848,51 +1042,51 @@ class TestNLUPipelineIntegration:
         # Create mock versions of the two main pipeline steps we need to verify
         # 1. The mock classify_intent that returns our specific intent
         mock_classify = mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.classify_intent',
-            return_value=(override_intent, 0.99)  # Simple tuple format for backward compatibility
+            "talk2py.nlu_pipeline.default_intent_detection.DefaultIntentDetection.classify_intent",
+            return_value=(
+                override_intent,
+                0.99,
+            ),  # Simple tuple format for backward compatibility
         )
-        
+
         # 2. The mock identify_parameters that returns our specific params
         mock_identify = mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters',
-            return_value=override_params
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.identify_parameters",
+            return_value=override_params,
         )
-        
+
         # 3. The mock validate_parameters that passes validation
         mock_validate = mocker.patch(
-            'talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters',
-            return_value=(True, None)
+            "talk2py.nlu_pipeline.default_param_extraction.DefaultParameterExtraction.validate_parameters",
+            return_value=(True, None),
         )
-        
+
         # 4. The mock generate_response that returns our override response
         mock_generate = mocker.patch(
-            'talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response',
-            return_value=override_response
+            "talk2py.nlu_pipeline.default_response_generation.DefaultResponseGeneration.generate_response_text",
+            return_value=override_response,
         )
-        
+
         # Spy on _save_nlu_context to capture the context during test
-        mock_save = mocker.spy(self.pipeline, '_save_nlu_context')
-        
+        mock_save = mocker.spy(self.pipeline, "_save_nlu_context")
+
         # Process the message - this should use our mocked methods
         response = await self.pipeline.process_message(user_message)
-        
+
         # Verify the overrides were used
         # First check that our mock methods were called
         mock_classify.assert_called_once()
         mock_identify.assert_called_once()
         mock_validate.assert_called_once()
         mock_generate.assert_called_once()
-        
+
         # Then check the final response matches what we expect
         assert response == override_response
-        
+
         # Verify the context was saved and has expected values
         assert mock_save.call_count > 0, "Context should have been saved at least once"
         # Get the last saved context
-        saved_context = mock_save.call_args[0][0]  
+        saved_context = mock_save.call_args[0][0]
         assert saved_context.current_intent == override_intent
         assert saved_context.current_parameters == override_params
         assert saved_context.current_state == NLUPipelineState.RESPONSE_TEXT_GENERATION
-
-
- 

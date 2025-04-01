@@ -14,12 +14,10 @@ gen-env:
 lint: gen-env
 	$(LOAD_ENV)
 	py3clean . 
-	isort . --skip .venv
+	ruff check . --fix
 	black . --exclude ".venv"
-	flake8 . --ignore E501,E122,W503,E402,F401,E203 --exclude .venv
-	pylint --recursive=y --ignore=.venv .
 	mypy --install-types --non-interactive .
-	mypy . --exclude .venv
+	mypy -p talk2py --exclude .venv
 	bandit -c pyproject.toml -r . --exclude ./.venv
 
 test:
