@@ -238,11 +238,6 @@ class TestCommandRegistry:
         assert not registry.command_funcs
         assert registry.metadata_dir is None
 
-    def test_load_nonexistent_metadata(self) -> None:
-        """Test loading metadata from a nonexistent file."""
-        with pytest.raises(FileNotFoundError):
-            CommandRegistry(command_metadata_path="nonexistent.json")
-
     def test_load_nonexistent_app_folder(self) -> None:
         """Test loading metadata from a nonexistent app folder."""
         with pytest.raises(FileNotFoundError):

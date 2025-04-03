@@ -24,18 +24,11 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
     functions.
     """
 
-    def __init__(
-        self,
-        app_folderpath: Optional[str] = None,
-        command_metadata_path: Optional[str] = None,
-    ):
+    def __init__(self, app_folderpath: Optional[str] = None):
         """Initialize the CommandRegistry.
 
         Args:
-            app_folderpath: Optional path to the application folder. If provided,
-                            metadata path will be derived automatically using get_metadata_path.
-            command_metadata_path: Optional path to a JSON file containing
-                                command metadata. Deprecated, use app_folderpath instead.
+            app_folderpath: Optional path to the application folder.
         """
         self.command_metadata: dict[str, Any] = {}
         self.command_funcs: dict[str, Callable[..., Any]] = {}
@@ -49,8 +42,6 @@ class CommandRegistry:  # pylint: disable=too-many-instance-attributes
         if app_folderpath:
             metadata_path = self.get_metadata_path(app_folderpath)
             self.load_command_metadata(metadata_path)
-        elif command_metadata_path:
-            self.load_command_metadata(command_metadata_path)
 
     @staticmethod
     def get_metadata_path(app_folderpath: str) -> str:
