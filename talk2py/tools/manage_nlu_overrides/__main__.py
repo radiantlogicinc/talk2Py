@@ -67,7 +67,6 @@ class NLUOverridesManager:
                     return json.load(f)
         # Create new metadata structure
         return {
-            "app_folderpath": f"./{os.path.relpath(self.app_folder_path)}",
             "map_commandkey_2_nluengine_metadata": {},
         }
 

@@ -102,7 +102,6 @@ class TestNLUOverridesManager(TestCase):
             manager = NLUOverridesManager(str(self.app_folder))
 
         expected = {
-            "app_folderpath": f"./{os.path.relpath(str(self.app_folder))}",
             "map_commandkey_2_nluengine_metadata": {},
         }
         self.assertEqual(manager.nlu_metadata, expected)
